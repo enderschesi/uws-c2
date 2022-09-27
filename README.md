@@ -1,5 +1,3 @@
-### FYI: This isn't 100% universal, there are bugs on almost every season and some seasons have no support at all.<br> <a href="https://discord.gg/reboot">Discord Server</a>.
-
 # Supported Versions
 Currently Supported: ~S1-S19<br>
 
@@ -23,6 +21,8 @@ If your code edits some existing code, lets say inventory, explain what it does.
 <br>
 This Project was made for fun and was open sourced for Educational Purposes. If you are an Epic Employee and want this project taken down please contact me on Discord: Milxnor#3531
 # CREDITS
+
+Many thanks to the creators of Universal-Walking-Simulator for the excellent work! Also join https://discord.gg/reboot
 
 If you take anything from here, please credit the appropiate person and link the repository.<br>
 
