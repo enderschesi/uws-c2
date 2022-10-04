@@ -13,7 +13,6 @@ env:
   # Configuration type to build.
   # You can convert this to a build matrix if you need coverage of multiple configuration types.
   # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-  BUILD_CONFIGURATION: Release
 
 permissions:
   contents: read
@@ -21,6 +20,69 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, '[BETA]') || !contains(github.event.head_commit.message, '[RELEASE]')"
+    env:
+      BUILD_CONFIGURATION: Debug
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.0.2
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Upload Release Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Release
+        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}
+        if-no-files-found: warn
+        retention-days: 60
+        
+  beta:
+    runs-on: windows-latest
+    if: "contains(github.event.head_commit.message, '[BETA]')"
+    env:
+      BUILD_CONFIGURATION: Release
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.0.2
+
+    - name: Restore NuGet packages
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Build
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      # Add additional options to the MSBuild command line here (like platform or verbosity level).
+      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}}
+
+    - name: Upload Release Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Release
+        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}
+        if-no-files-found: warn
+        retention-days: 60
+        
+  release:
+    runs-on: windows-latest
+    if: "contains(github.event.head_commit.message, '[RELEASE]')"
+    env:
+      BUILD_CONFIGURATION: Release
 
     steps:
     - uses: actions/checkout@v3
