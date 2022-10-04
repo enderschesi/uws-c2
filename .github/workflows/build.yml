@@ -9,6 +9,7 @@ on:
 env:
   # Path to the solution file relative to the root of the project.
   SOLUTION_FILE_PATH: .
+  ASSEMBLY_NAME: "Project Reboot.dll"
 
   # Configuration type to build.
   # You can convert this to a build matrix if you need coverage of multiple configuration types.
@@ -74,7 +75,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: Release
-        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}
+        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}/${{env.ASSEMBLY_NAME}}
         if-no-files-found: warn
         retention-days: 60
         
@@ -104,6 +105,6 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: Release
-        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}
+        path: ${{env.SOLUTION_FILE_PATH}}/x64/${{env.BUILD_CONFIGURATION}}/${{env.ASSEMBLY_NAME}}
         if-no-files-found: warn
         retention-days: 60
