@@ -19,11 +19,8 @@ permissions:
   contents: read
 
 jobs:
-  debug:
+  setup:
     runs-on: windows-latest
-    if: "!contains(github.event.head_commit.message, '[BETA]') || !contains(github.event.head_commit.message, '[RELEASE]')"
-    env:
-      BUILD_CONFIGURATION: Debug
 
     steps:
     - uses: actions/checkout@v3
@@ -34,7 +31,15 @@ jobs:
     - name: Restore NuGet packages
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+  
+  debug:
+    runs-on: windows-latest
+    needs: setup
+    if: "!contains(github.event.head_commit.message, '[BETA]') || !contains(github.event.head_commit.message, '[RELEASE]')"
+    env:
+      BUILD_CONFIGURATION: Debug
 
+    steps:
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
@@ -51,20 +56,12 @@ jobs:
         
   beta:
     runs-on: windows-latest
+    needs: setup
     if: "contains(github.event.head_commit.message, '[BETA]')"
     env:
       BUILD_CONFIGURATION: Release
 
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v1.0.2
-
-    - name: Restore NuGet packages
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
-
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
@@ -81,20 +78,13 @@ jobs:
         
   release:
     runs-on: windows-latest
+    needs: setup
     if: "contains(github.event.head_commit.message, '[RELEASE]')"
     env:
       BUILD_CONFIGURATION: Release
 
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v1.0.2
-
-    - name: Restore NuGet packages
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
-
+    
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
