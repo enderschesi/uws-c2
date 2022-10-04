@@ -40,6 +40,8 @@ jobs:
       BUILD_CONFIGURATION: Debug
 
     steps:
+    - uses: actions/checkout@v3
+    
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
@@ -62,6 +64,8 @@ jobs:
       BUILD_CONFIGURATION: Release
 
     steps:
+    - uses: actions/checkout@v3
+    
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       # Add additional options to the MSBuild command line here (like platform or verbosity level).
@@ -84,6 +88,7 @@ jobs:
       BUILD_CONFIGURATION: Release
 
     steps:
+    - uses: actions/checkout@v3
     
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
