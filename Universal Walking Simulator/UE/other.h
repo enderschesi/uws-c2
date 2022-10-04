@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <random>
+#include <fstream>
 
 static FORCEINLINE bool IsNaN(float A)
 {
@@ -505,6 +506,42 @@ enum EName
 	// pragma = (pop_macro("TRUE")) pragma(pop_macro("FALSE")) # 18 "D:/DocSource/Engine/Source/Runtime/Core/Public/UObject/UnrealNames.h" 2 MaxHardcodedNameIndex,
 };
 
+enum ERichCurveInterpMode
+{
+	/** Use linear interpolation between values. */
+	RCIM_Linear,
+	/** Use a constant value. Represents stepped values. */
+	RCIM_Constant,
+	/** Cubic interpolation. See TangentMode for different cubic interpolation options. */
+	RCIM_Cubic,
+	/** No interpolation. */
+	RCIM_None
+};
+
+enum class EFortAbilityTargetDataPolicy : uint8_t
+{
+	ReplicateToServer = 0,
+	SimulateOnServer = 1,
+	EFortAbilityTargetDataPolicy_MAX = 2
+};
+
+void WriteToFile(const std::string& Text, const std::string& FileName = "DUMP.txt")
+{
+	std::ofstream stream(FileName, std::ios::out | std::ios::app);
+
+	stream << Text << '\n';
+
+	stream.close();
+}
+
+enum class EFortGameplayAbilityMontageSectionToPlay : uint8_t
+{
+	FirstSection = 0,
+	RandomSection = 1,
+	TestedRandomSection = 2,
+	EFortGameplayAbilityMontageSectionToPlay_MAX = 3
+};
+
 #define FASTASIN_HALF_PI (1.5707963050f)
 /**
 * Computes the ASin of a scalar value.
@@ -665,7 +702,7 @@ struct FTransform // https://github.com/EpicGames/UnrealEngine/blob/c3caf7b6bf12
 	FQuat Rotation;
 	FVector Translation;
 	char pad_1C[0x4]; // Padding never changes
-	FVector Scale3D;
+	FVector Scale3D = FVector{ 1, 1, 1 };
 	char pad_2C[0x4];
 
 	/* bool ContainsNaN() const

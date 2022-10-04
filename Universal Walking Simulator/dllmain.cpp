@@ -180,6 +180,18 @@ void __fastcall sub_7FF700EF5E20Detour(__int64 a1, int a2)
     return sub_7FF700EF5E20O(a1, a2);
 }
 
+void(__fastcall* CALLMEIMCOOLO)(UObject* GameMode, __int64 a2, char setmetofalse, char a4);
+
+void __fastcall CALLMEIMCOOLDETOUR(UObject* GameMode, __int64 a2, char setmetofalse, char a4)
+{
+    std::cout << "GameMode: " << GameMode << '\n';
+    std::cout << "a2: " << a2 << '\n';
+    std::cout << "setmetofalse: " << setmetofalse << '\n';
+    std::cout << "a4: " << a4 << '\n';
+
+    return CALLMEIMCOOLO(GameMode, a2, false, a4);
+}
+
 char(__fastcall* stu8pduficnO)(__int64 a1, __int64 a2, __int64 a3, bool* a4);
 
 char __fastcall stu8pduficnDetour(__int64 a1, __int64 a2, __int64 a3, bool* a4)
@@ -209,6 +221,9 @@ DWORD WINAPI Main(LPVOID)
         std::cout << ("Failed setup!\n");
         return 1;
     }
+
+    std::cout << "f: " << FnVerDouble << '\n';
+    std::cout << "e: " << Engine_Version << '\n';
 
     /* static auto GameViewportOffset = GetOffset(FindObjectOld("FortEngine_"), "GameViewport");
     auto GameViewport = *(UObject**)(__int64(FindObjectOld("FortEngine_")) + GameViewportOffset);
@@ -277,8 +292,6 @@ DWORD WINAPI Main(LPVOID)
     CreateThread(0, 0, BotThread, 0, 0, 0);
 #endif
 
-    std::cout << "f: " << FnVerDouble << '\n';
-
     SetConsoleTitleA(("Project Reboot Server"));
 
     if (Engine_Version < 422)
@@ -295,6 +308,7 @@ DWORD WINAPI Main(LPVOID)
 
     TestAbilitySizeDifference();
 
+    std::cout << "StaticLoadObject: " << StaticLoadObjectO << '\n';
     std::cout << "SetWorld: " << SetWorld << '\n';
     std::cout << "ReplicateActor: " << ReplicateActor << '\n';
     std::cout << "SetChannelActor: " << SetChannelActor << '\n';
@@ -342,15 +356,38 @@ DWORD WINAPI Main(LPVOID)
 
     NoMcpAddr = FindPattern("E8 ? ? ? ? 84 C0 75 CE", true, 1);
 
+    if (Engine_Version >= 424)
+        NoMcpAddr = FindPattern("E8 ? ? ? ? 84 C0 75 C1", true, 1);
+
+    if (Engine_Version <= 420)
+        NoMcpAddr = FindPattern("E8 ? ? ? ? 90 EB E7", true, 0x6E);
+
+    if (!NoMcpAddr)
+        NoMcpAddr = FindPattern("E8 ? ? ? ? 84 C0 75 C0", true, 1); // 10.40
+
+    if (!NoMcpAddr)
+        NoMcpAddr = FindPattern("E8 ? ? ? ? 90 EB E1", true, 1); // 2.4.2
+
+    // 48 83 EC 28 65 48 8B 04 25 ? ? ? ? 8B 0D ? ? ? ? BA ? ? ? ? 48 8B 0C C8 8B 04 0A 39 05 ? ? ? ? 7F 0C 0F B6 05 ? ? ? ? 48 83 C4 28 C3 48 8D 0D ? ? ? ? E8 ? ? ? ? 83 3D ? ? ? ? ? 75 DF E8 ? ? ? ? 48 8B C8 48 8D 15 ? ? ? ? E8 ? ? ? ? 48 8D 0D ? ? ? ? 88 05 ? ? ? ? E8 ? ? ? ? EB B7
+
     funnyaddry = FindPattern("40 53 48 81 EC ? ? ? ? 48 83 79 ? ? 48 8B D9 74 0E B8 ? ? ? ? 48 81 C4 ? ? ? ? 5B C3 48 8B 89 ? ? ? ? 48 85 C9 74 0D 48 81 C4 ? ? ? ? 5B E9 ? ? ? ? 48 8B 0D ? ? ? ?");
 
+    if (!funnyaddry)
+        funnyaddry = FindPattern("48 89 5C 24 ? 57 48 81 EC ? ? ? ? 48 8B D9 48 8B 0D ? ? ? ? 48 85 C9 0F 84 ? ? ? ? 48 8B D3 E8 ? ? ? ? 48");
+
+    constexpr bool idkai3 = false;
+
+    if (idkai3 && !funnyaddry)
+        funnyaddry = FindPattern("48 83 79 ? ? 75 19 48 8B 81 ? ? ? ? 48 85 C0 74 08 48 8B C8 E9 ? ? ? ? E9 ? ? ? ? B8"); // 19.10 */
+
     std::cout << "funnyaddry: " << funnyaddry << '\n';
+    std::cout << "NoMcpAddr: " << NoMcpAddr << '\n';
 
     bool bafuaqeu = false;
 
     if (NoMcpAddr && funnyaddry)
     {
-        if (Engine_Version < 424)
+        if (Engine_Version < 426) // IsNoMCP leads to wrong addr (atleast for S13)
         {
             MH_CreateHook((PVOID)NoMcpAddr, IsNoMCPDetour, nullptr);
             MH_EnableHook((PVOID)NoMcpAddr);
@@ -363,18 +400,87 @@ DWORD WINAPI Main(LPVOID)
     }
     
     if (!bafuaqeu)
+    {
         std::cout << "[WARNING] Will not be able to apply magical fix!\n";
+        NoMcpAddr = 0;
+        funnyaddry = 0;
+    }
 
     {
         MH_CreateHook((PVOID)SpawnActorAddr, SpawnActorDetour, (void**)&SpawnActorO);
         MH_EnableHook((PVOID)SpawnActorAddr);
     }
 
-    static auto aibuildfn = FindObject("Function /Script/FortniteGame.FortAIController.CreateBuildingActor");
-    bUseAIBuild = aibuildfn && FnVerDouble < 19.00 && bDoubleBuildFix2;
+    if (idkai3)
+    {
+        auto CallsReinitializeALlProfilesAddr = FindPattern("");
 
-    std::cout << "bUseAIBuild: " << bUseAIBuild << '\n';
-    // std::cout << "SIZE: " << sizeof(FTS::Abilities::FGameplayAbilitySpecAA) << '\n';
+        MH_CreateHook((PVOID)CallsReinitializeALlProfilesAddr, CallsReinitializeALlProfilesDetour, nullptr);
+        MH_EnableHook((PVOID)CallsReinitializeALlProfilesAddr);
+    }
+
+   /* auto agiuigf1 = FindPattern("48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 48 89 7C 24 ? 41 56 48 83 EC 30 48 8B B1 ? ? ? ? 41 0F B6 E9 45 0F B6 F0 48 8B FA");
+
+    if (!agiuigf1)
+        agiuigf1 = FindPattern("48 89 5C 24 ? 48 89 74 24 ? 57 41 54 41 57 48 83 EC 30 48 89 6C 24 ? 33 DB 48 8B A9 ? ? ? ? 45 0F B6 F9 45 0F B6 E0 48 8B F2 48 8B");
+
+    std::cout << "agiuigf1: " << agiuigf1 << '\n';
+
+    MH_CreateHook((PVOID)agiuigf1, CALLMEIMCOOLDETOUR, (void**)&CALLMEIMCOOLO);
+    MH_EnableHook((PVOID)agiuigf1); */
+
+    if (FnVerDouble == 7.40 && bEmotingEnabled)
+    {
+        auto addy35125 = FindObject("FortAbilitySystemComponentAthena /Script/FortniteGame.Default__FortAbilitySystemComponentAthena")->VFTable[243];
+
+        CreateNewInstanceOfAbilityO = decltype(CreateNewInstanceOfAbilityO)(addy35125);
+
+        MH_CreateHook((PVOID)addy35125, CreateNewInstanceOfAbilityDetour, (void**)&CreateNewInstanceOfAbilityO);
+        MH_EnableHook((PVOID)addy35125);
+    }
+
+    // auto Mappings = FindObject("FortDeathCauseFromTagMapping /Game/Balance/DeathTagToEnumMapping.DeathTagToEnumMapping");
+
+    auto CanBuildAddr = FindPattern("48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 41 56 48 83 EC ? 49 8B E9 4D 8B F0");
+
+    if (!CanBuildAddr)
+        CanBuildAddr = FindPattern("48 89 54 24 ? 55 56 41 56 48 83 EC 50");
+
+    if (!CanBuildAddr)
+        CanBuildAddr = FindPattern("E8 ? ? ? ? 85 C0 0F 85 ? ? ? ? 80 65 28 F0", true, 1); // S19
+
+    if (Engine_Version != 426)
+        CanBuild = decltype(CanBuild)(CanBuildAddr);
+
+    std::cout << "CanBuildAddr: " << CanBuildAddr << '\n';
+
+    if (false) // 21.00
+    {
+        auto CreatereplicationadfiAd = FindPattern("48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 54 41 56 41 57 48 83 EC 40 49 8B F8 48 8B F2 4C 8B F9 E8 ? ? ? ? 33 DB 39 58 08 74 36 48 8B 08");
+
+        MH_CreateHook((PVOID)CreatereplicationadfiAd, CreateReplicationDriverDetour, nullptr);
+        MH_EnableHook((PVOID)CreatereplicationadfiAd);
+
+        auto logdfunc = FindPattern("83 7A 08 00 4C 8D 05 ? ? ? ? 74 05 4C 8B 0A EB 03 4D 8B C8 83 79 18 00 74 04 4C 8B 41 10 48 8B 09 48 8D 15 ? ? ? ? E9 ? ? ? ?");
+
+        MH_CreateHook((PVOID)logdfunc, FReplicationGraphDebugInfo_LogDetour, nullptr);
+        MH_EnableHook((PVOID)logdfunc);
+    }
+
+    if (bEmotingEnabled && false && FnVerDouble == 7.40)
+    {
+        auto getewaoe = FindPattern("44 8B 41 04 45 85 C0 74 4E 8B 01 85 C0 78 48 3B 05 ? ? ? ? 7D 40 99 0F B7 D2 03 C2 8B C8 0F B7 C0 2B C2 C1 F9 10 48 98 48 63 C9 48 8D");
+
+        MH_CreateHook((PVOID)getewaoe, FWeakObjectPtr_GetDetour, (PVOID*)&FWeakObjectPtr_GetO);
+        MH_EnableHook((PVOID)getewaoe);
+
+        auto getewaoe2 = FindPattern("44 8B 49 04 44 0F B6 D2 45 85 C9 74 63 8B 01 85 C0 78 5D 3B 05 ? ? ? ? 7D 55 99 0F B7 D2 03 C2 8B C8 0F B7 C0 2B C2 C1 F9 10 48 98 48");
+
+        MH_CreateHook((PVOID)getewaoe2, FWeakObjectPtr_Get2Detour, (PVOID*)&FWeakObjectPtr_Get2O);
+        MH_EnableHook((PVOID)getewaoe2);
+    }
+
+    GlobalPickaxeDefObject = FindObject(PickaxeDef);
 
     return 0;
 }

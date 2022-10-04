@@ -78,7 +78,7 @@ __int64* FindAbilitySpecFromHandle2(UObject* ASC, FGameplayAbilitySpecHandle Han
     return SpecToReturn;
 }
 
-void InternalServerTryActivateAbility(UObject* ASC, FGameplayAbilitySpecHandle Handle, bool InputPressed, FPredictionKey* PredictionKey, __int64* TriggerEventData, bool bConsumeData = false)
+void InternalServerTryActivateAbility(UObject* ASC, FGameplayAbilitySpecHandle Handle, bool InputPressed, FPredictionKey* PredictionKey, __int64* TriggerEventData)
 {
     if (!PredictionKey)
     {
@@ -110,12 +110,21 @@ void InternalServerTryActivateAbility(UObject* ASC, FGameplayAbilitySpecHandle H
 
     UObject* InstancedAbility = nullptr;
 
-    if (Engine_Version < 426)
+    auto InputPressedOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "InputPressed");
+
+    auto inad = (char*)(__int64(Spec) + InputPressedOffset);
+
+    if (((bool(1) << 1) & *(bool*)(inad)) != 1)
+    {
+        *inad = (*inad & ~1) | (true ? 1 : 0);
+    }
+
+    /* if (Engine_Version < 426)
         ((FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0x50>*)Spec)->InputPressed = true;
     else if (Engine_Version == 426)
         ((FGameplayAbilitySpec<FGameplayAbilityActivationInfoFTS, 0x50>*)Spec)->InputPressed = true;
     else
-        ((FGameplayAbilitySpecNewer*)Spec)->InputPressed = true;
+        ((FGameplayAbilitySpecNewer*)Spec)->InputPressed = true; */
 
     // Attempt to activate the ability (server side) and tell the client if it succeeded or failed.
 
@@ -123,7 +132,7 @@ void InternalServerTryActivateAbility(UObject* ASC, FGameplayAbilitySpecHandle H
 
     if (Engine_Version < 426)
         res = InternalTryActivateAbility(ASC, Handle, *PredictionKey, &InstancedAbility, nullptr, TriggerEventData);
-    else if (FnVerDouble < 19.00)
+    else if (FnVerDouble < 18.00)
         res = InternalTryActivateAbilityFTS(ASC, Handle, *(FPredictionKeyFTS*)PredictionKey, &InstancedAbility, nullptr, TriggerEventData);
     else
         res = InternalTryActivateAbilityNewer(ASC, Handle, *(FPredictionKeyNewer*)PredictionKey, &InstancedAbility, nullptr, TriggerEventData);
@@ -135,12 +144,17 @@ void InternalServerTryActivateAbility(UObject* ASC, FGameplayAbilitySpecHandle H
         std::cout << std::format("InternalServerTryActivateAbility. Rejecting ClientActivation of {}. InternalTryActivateAbility failed\n", (*GetAbilityFromSpec(Spec))->GetName());
         Helper::Abilities::ClientActivateAbilityFailed(ASC, Handle, *GetCurrent(PredictionKey));
 
-        if (Engine_Version < 426)
+        if (((bool(1) << 1) & *(bool*)(inad)) != 1)
+        {
+            *inad = (*inad & ~1) | (false ? 1 : 0);
+        }
+
+        /* if (Engine_Version < 426)
             ((FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0x50>*)Spec)->InputPressed = false;
         else if (Engine_Version == 426)
             ((FGameplayAbilitySpec<FGameplayAbilityActivationInfoFTS, 0x50>*)Spec)->InputPressed = false;
         else
-            ((FGameplayAbilitySpecNewer*)Spec)->InputPressed = false;
+            ((FGameplayAbilitySpecNewer*)Spec)->InputPressed = false; */
 
         MarkItemDirty(GetActivatableAbilities(ASC), (FFastArraySerializerItem*)Spec); // TODO: Start using the proper function again
     }
@@ -168,7 +182,42 @@ UObject* DoesASCHaveAbility(UObject* ASC, UObject* Ability)
     return AbilityToReturn;
 }
 
-static inline UObject* GrantGameplayAbility(UObject* TargetPawn, UObject* GameplayAbilityClass) // CREDITS: kem0x, raider3.5
+void* GenerateNewSpec(UObject* DefaultObject)
+{
+    static auto GameplayAbilitySpecStruct = FindObjectOld("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", true);
+    static auto GameplayAbilitySpecSize = GetSizeOfStruct(GameplayAbilitySpecStruct);
+
+    if (Engine_Version < 426)
+        std::cout << "Size of GameplayAbilitySpec: " << GameplayAbilitySpecSize << '\n';
+
+    auto ptr = malloc(GameplayAbilitySpecSize);
+
+    if (!ptr)
+        return nullptr;
+
+    RtlSecureZeroMemory(ptr, GameplayAbilitySpecSize);
+
+    FGameplayAbilitySpecHandle Handle{};
+    Handle.GenerateNewHandle();
+
+    ((FFastArraySerializerItem*)ptr)->MostRecentArrayReplicationKey = -1;
+    ((FFastArraySerializerItem*)ptr)->ReplicationID = -1;
+    ((FFastArraySerializerItem*)ptr)->ReplicationKey = -1;
+
+    static auto HandleOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Handle");
+    static auto AbilityOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Ability");
+    static auto LevelOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Level");
+    static auto InputIDOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "InputID");
+
+    *(FGameplayAbilitySpecHandle*)(__int64(ptr) + HandleOffset) = Handle;
+    *(UObject**)(__int64(ptr) + AbilityOffset) = DefaultObject;
+    *(int*)(__int64(ptr) + LevelOffset) = 1;
+    *(int*)(__int64(ptr) + InputIDOffset) = -1;
+
+    return ptr;
+}
+
+static inline UObject* GrantGameplayAbility(UObject* TargetPawn, UObject* GameplayAbilityClass, void** OutSpec = nullptr) // CREDITS: kem0x, raider3.5
 {
     if (!GameplayAbilityClass || !TargetPawn)
         return nullptr;
@@ -221,41 +270,7 @@ static inline UObject* GrantGameplayAbility(UObject* TargetPawn, UObject* Gamepl
 
     static auto HandleOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Handle");
 
-    auto GenerateNewSpec = [&]() -> void*
-    {
-        static auto GameplayAbilitySpecStruct = FindObjectOld("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", true);
-        static auto GameplayAbilitySpecSize = GetSizeOfStruct(GameplayAbilitySpecStruct);
-
-        if (Engine_Version < 426)
-            std::cout << "Size of GameplayAbilitySpec: " << GameplayAbilitySpecSize << '\n';
-
-        auto ptr = malloc(GameplayAbilitySpecSize);
-
-        if (!ptr)
-            return nullptr;
-
-        RtlSecureZeroMemory(ptr, GameplayAbilitySpecSize);
-
-        FGameplayAbilitySpecHandle Handle{};
-        Handle.GenerateNewHandle();
-
-        ((FFastArraySerializerItem*)ptr)->MostRecentArrayReplicationKey = -1;
-        ((FFastArraySerializerItem*)ptr)->ReplicationID = -1;
-        ((FFastArraySerializerItem*)ptr)->ReplicationKey = -1;
-
-        static auto AbilityOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Ability");
-        static auto LevelOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "Level");
-        static auto InputIDOffset = FindOffsetStruct("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec", "InputID");
-
-        *(FGameplayAbilitySpecHandle*)(__int64(ptr) + HandleOffset) = Handle;
-        *(UObject**)(__int64(ptr) + AbilityOffset) = DefaultObject;
-        *(int*)(__int64(ptr) + LevelOffset) = 1;
-        *(int*)(__int64(ptr) + InputIDOffset) = -1;
-
-        return ptr;
-    };
-
-    void* NewSpec = GenerateNewSpec();
+    void* NewSpec = GenerateNewSpec(DefaultObject);
 
     if (!NewSpec)
         return nullptr;
@@ -273,12 +288,15 @@ static inline UObject* GrantGameplayAbility(UObject* TargetPawn, UObject* Gamepl
         GiveAbility(AbilitySystemComponent, Handle, *(FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0x50>*)NewSpec);
     else if (Engine_Version < 420)
         GiveAbilityOLDDD(AbilitySystemComponent, Handle, *(FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0>*)NewSpec);
-    else if (std::floor(FnVerDouble) == 15)
-        GiveAbilityAHH(AbilitySystemComponent, Handle, *(FGameplayAbilitySpecAHH*)NewSpec);
+    else if (std::floor(FnVerDouble) == 14 || std::floor(FnVerDouble) == 15)
+        GiveAbilityS14ANDS15(AbilitySystemComponent, Handle, *(PaddingHex224*)NewSpec);
     else if (Engine_Version == 426)
         GiveAbilityFTS(AbilitySystemComponent, Handle, *(FGameplayAbilitySpec<FGameplayAbilityActivationInfoFTS, 0x50>*)NewSpec);
     else
         GiveAbilityNewer(AbilitySystemComponent, Handle, *(FGameplayAbilitySpecNewer*)NewSpec);
+
+    if (OutSpec)
+        *OutSpec = NewSpec;
 
     return *GetAbilityFromSpec(NewSpec);
 }
@@ -408,11 +426,11 @@ bool hk_CanActivateAbility(UObject* GameplayAbility, const FGameplayAbilitySpecH
 
 void InitializeAbilityHooks()
 {
-    if (FnVerDouble < 19.00)
+    if (FnVerDouble < AboveVersionDisableAbilities)
     {
+        AddHook(("Function /Script/GameplayAbilities.AbilitySystemComponent.ServerTryActivateAbility"), ServerTryActivateAbilityHook);
         AddHook(("Function /Script/GameplayAbilities.AbilitySystemComponent.ServerTryActivateAbilityWithEventData"), ServerTryActivateAbilityWithEventDataHook);
         AddHook(("Function /Script/GameplayAbilities.AbilitySystemComponent.ServerAbilityRPCBatch"), ServerAbilityRPCBatchHook);
-        AddHook(("Function /Script/GameplayAbilities.AbilitySystemComponent.ServerTryActivateAbility"), ServerTryActivateAbilityHook);
 
         if (o_CanActivateAbility)
         {
@@ -420,7 +438,7 @@ void InitializeAbilityHooks()
             MH_EnableHook((PVOID)CanActivateAbilityAddr);
         }
         else
-            std::cout << "CanActivateAbility not found!\n";
+            std::cout << "[WARNING] CanActivateAbility not found!\n";
     }
 }
 
@@ -444,39 +462,45 @@ void TestAbilitySizeDifference()
 
     if (Engine_Version < 426)
         AHH<FPredictionKey>(("ScriptStruct /Script/GameplayAbilities.PredictionKey"));
-    else if (FnVerDouble < 19.00)
+    else if (FnVerDouble < 18.00)
         AHH<FPredictionKeyFTS>(("ScriptStruct /Script/GameplayAbilities.PredictionKey"));
     else
         AHH<FPredictionKeyNewer>(("ScriptStruct /Script/GameplayAbilities.PredictionKey"));
 
     AHH<FGameplayAbilitySpecHandle>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecHandle"));
+    AHH<FActiveGameplayEffectHandle>("ScriptStruct /Script/GameplayAbilities.ActiveGameplayEffectHandle");
 
     if (Engine_Version < 426 && Engine_Version >= 420)
         AHH<FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0x50>>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec"));
     else if (Engine_Version < 420)
         AHH<FGameplayAbilitySpec<FGameplayAbilityActivationInfo, 0>>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec"));
-    else if (std::floor(FnVerDouble) == 15)
-        AHH<FGameplayAbilitySpecAHH>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec"));
+    else if (std::floor(FnVerDouble) == 14 || std::floor(FnVerDouble) == 15)
+        AHH<PaddingHex224>("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec");
     else if (Engine_Version == 426)
         AHH<FGameplayAbilitySpec<FGameplayAbilityActivationInfoFTS, 0x50>>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec"));
     else
         AHH<FGameplayAbilitySpecNewer>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpec"));
 
-    if (Engine_Version <= 422)
-    {
-        AHH<FGameplayAbilitySpecContainerOL>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
-        AHH<FGameplayAbilityTargetDataHandleOL>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilityTargetDataHandle"));
-        AHH<FGameplayEventDataOL>(("ScriptStruct /Script/GameplayAbilities.GameplayEventData"));
-        AHH<FFastArraySerializerOL>(("ScriptStruct /Script/Engine.FastArraySerializer"));
-    }
+    if (FnVerDouble >= 19.00)
+        AHH<FGameplayAbilityActivationInfoNewer>("ScriptStruct /Script/GameplayAbilities.GameplayAbilityActivationInfo");
+    else if (Engine_Version == 426)
+        AHH<FGameplayAbilityActivationInfoFTS>("ScriptStruct /Script/GameplayAbilities.GameplayAbilityActivationInfo");
     else
-    {
-        AHH<FGameplayAbilitySpecContainerSE>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
-        AHH<FGameplayAbilityTargetDataHandleSE>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilityTargetDataHandle"));
+        AHH<FGameplayAbilityActivationInfo>("ScriptStruct /Script/GameplayAbilities.GameplayAbilityActivationInfo");
 
-        AHH<FGameplayEventDataSE>(("ScriptStruct /Script/GameplayAbilities.GameplayEventData"));
+    if (Engine_Version == 426)
+        AHH<FGameplayAbilitySpecContainerFTS>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
+    else if (Engine_Version <= 422)
+        AHH<FGameplayAbilitySpecContainerOL>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
+    else if (FnVerDouble >= 19.00)
+        AHH<FGameplayAbilitySpecContainerNewer>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
+    else
+        AHH<FGameplayAbilitySpecContainerSE>(("ScriptStruct /Script/GameplayAbilities.GameplayAbilitySpecContainer"));
+
+    if (Engine_Version <= 422)
+        AHH<FFastArraySerializerOL>(("ScriptStruct /Script/Engine.FastArraySerializer"));
+    else
         AHH<FFastArraySerializerSE>(("ScriptStruct /Script/Engine.FastArraySerializer"));
-    }
 }
 
 std::vector<UObject*> GiveAbilitySet(UObject* Pawn, UObject* AbilitySet)
@@ -504,7 +528,7 @@ std::vector<UObject*> GiveAbilitySet(UObject* Pawn, UObject* AbilitySet)
 
                 AbilitiesToRet.push_back(ability);
 
-                std::cout << "Granting ability " << Ability->GetFullName() << '\n';
+                // std::cout << "Granting ability " << Ability->GetFullName() << '\n';
             }
         }
     }
@@ -514,7 +538,7 @@ std::vector<UObject*> GiveAbilitySet(UObject* Pawn, UObject* AbilitySet)
 
 void GiveAllBRAbilities(UObject* Pawn)
 {
-    if (GiveAbility || GiveAbilityFTS || GiveAbilityNewer || GiveAbilityAHH || GiveAbilityOLDDD)
+    if (GiveAbility || GiveAbilityFTS || GiveAbilityNewer || GiveAbilityOLDDD || GiveAbilityS14ANDS15)
     {
         auto AbilitySystemComponent = *Pawn->CachedMember<UObject*>(("AbilitySystemComponent"));
 
@@ -574,7 +598,6 @@ void GiveAllBRAbilities(UObject* Pawn)
                         }
                     }
                 }
-
             }
 
             if (Engine_Version < 424) // i dont think needed

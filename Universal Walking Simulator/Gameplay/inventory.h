@@ -161,7 +161,7 @@ namespace QuickBars
 		if (!Controller)
 			return false;
 
-		static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+		static auto PickaxeDefObject = Helper::GetPickaxeDef(Controller);
 
 		auto Pawn = Helper::GetPawnFromController(Controller);
 
@@ -173,7 +173,7 @@ namespace QuickBars
 			{
 				auto CurrentWeaponDef = Helper::GetWeaponData(CurrentWeapon);
 
-				if (CurrentWeaponDef == PickaxeDef)
+				if (CurrentWeaponDef == PickaxeDefObject)
 					return true;
 			}
 		}
@@ -228,12 +228,6 @@ namespace QuickBars
 	}
 }
 
-static UObject* GetPickaxeDef(UObject* Controller)
-{
-	static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
-	return PickaxeDef;
-}
-
 namespace Inventory
 {
 	FGuid GetWeaponGuid(UObject* Weapon)
@@ -243,13 +237,20 @@ namespace Inventory
 		return *(FGuid*)(__int64(Weapon) + ItemEntryGuidOffset);
 	}
 
+	UObject* GetQuickBars(UObject* Controller)
+	{
+		static auto QuickBarsOffset = GetOffset(Controller, "QuickBars");
+
+		return *(UObject**)(__int64(Controller) + QuickBarsOffset);
+	}
+
 	UObject* GetWorldInventory(UObject* Controller)
 	{
 		static auto WorldInventoryOffset = GetOffset(Controller, "WorldInventory");
-		auto WorldInventory = *(UObject**)(__int64(Controller) + WorldInventoryOffset);
+		auto WorldInventoryP = (UObject**)(__int64(Controller) + WorldInventoryOffset);
 
 		// return *Controller->Member<UObject*>(("WorldInventory"));
-		return WorldInventory;
+		return !IsBadReadPtr(WorldInventoryP) ? *WorldInventoryP : nullptr;
 	}
 
 	__int64* GetInventory(UObject* Controller)
@@ -286,7 +287,7 @@ namespace Inventory
 
 	inline UObject* EquipWeapon(UObject* Pawn, UObject* FortWeapon, const FGuid& Guid, int Ammo = 0)
 	{
-		static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+		static auto PickaxeDef = Helper::GetPickaxeDef(Helper::GetControllerFromPawn(Pawn));
 		auto CurrentWeapon = Helper::GetCurrentWeapon(Pawn);
 
 		if (FortWeapon && CurrentWeapon && Pawn)
@@ -328,10 +329,31 @@ namespace Inventory
 	{
 		if (Pawn && Definition)
 		{
-			auto FullName = Definition->GetFullName();
-			bool IsAGID = (FullName.contains(("AthenaGadgetItemDefinition ")) || FullName.contains(("FortGadgetItemDefinition "))); // TODO: Use IsA
-			
-			if (!IsAGID)
+			static auto AthenaGadgetItemDefinitionClass = FindObject("Class /Script/FortniteGame.FortGadgetItemDefinition");
+
+			bool IsAGID = Definition->IsA(AthenaGadgetItemDefinitionClass);
+
+			static auto FortTrapItemDefinitionClass = FindObject("Class /Script/FortniteGame.FortTrapItemDefinition");
+			static auto FortContextTrapItemDefinitionClass = FindObject("Class /Script/FortniteGame.FortContextTrapItemDefinition");
+			static auto FortDecoItemDefinitionClass = FindObject("Class /Script/FortniteGame.FortDecoItemDefinition");
+
+			if (Definition->IsA(FortContextTrapItemDefinitionClass))
+			{
+
+			}
+
+			else if (Definition->IsA(FortTrapItemDefinitionClass)) // wrong? probs
+			{
+				static auto TrapToolClass = FindObject("BlueprintGeneratedClass /Game/Weapons/FORT_BuildingTools/TrapTool.TrapTool_C");
+				auto newTrapTool = Easy::SpawnActor(TrapToolClass, Helper::GetActorLocation(Pawn));
+				
+				static auto PickUpActor = Pawn->Function("PickUpActor");
+				struct { UObject* PickupActor; UObject* PlacementDecoItemDefinition; } parms{newTrapTool, Definition};
+
+				Pawn->ProcessEvent(PickUpActor, &parms);
+			}
+
+			else if (!IsAGID)
 			{
 				UObject* Weapon = nullptr;
 
@@ -386,7 +408,7 @@ namespace Inventory
 
 				return Weapon;
 			}
-			else
+			else if (IsAGID)
 			{
 				// std::cout << ("Equipping AGID!\n");
 				static auto GetItemDefinition = Definition->Function(("GetWeaponItemDefinition"));
@@ -408,55 +430,17 @@ namespace Inventory
 				}
 				else
 					std::cout << ("Failed to get AGID's Definition!\n");
-
-				if (FullName.contains(("AthenaGadgetItemDefinition "))) // Ability class seems to always be invalid
-				{
-					std::cout << ("Trying to get gameplay ability of class.\n");
-					static auto GetGameplayAbility = Definition->Function(("GetGameplayAbility"));
-					std::cout << ("Found GetGameplayAbility function.\n");
-					//UObject* GameplayAbility = nullptr;
-					//FindObject<TSoftClassPtr>("SoftClassProperty /Script/FortniteGame.FortGadgetItemDefinition.GameplayAbility");
-
-					//UClass* GameplayAbility = Helper::Conversion::SoftClassToClass(Definition->Member<TSoftClassPtr>("GameplayAbility"));
-					std::cout << ("Trying to convert to class.\n");
-					static auto KSLClass = FindObject(("KismetSystemLibrary /Script/Engine.Default__KismetSystemLibrary"));
-
-					static auto fn = KSLClass->Function(("Conv_SoftClassReferenceToClass"));
-
-					/*auto Class = FindObject<TSoftClassPtr>("SoftClassProperty /Script/FortniteGame.FortGadgetItemDefinition.GameplayAbility");
-					auto gameplayclass = Helper::Conversion::SoftClassToClass(Class);*/
-					/*std::cout << ("Found Class");
-					struct {
-						//TSoftClassPtr* SoftClass;
-						UClass* ReturnValue;
-					} params{nullptr};
-
-					if (fn)
-					{
-						std::cout << ("Trying to process Conversion");
-						KSLClass->ProcessEvent(fn, &Class);
-						std::cout << ("Processed Conversion");
-					}
-						
-					//UClass* GameplayAbility = params.ReturnValue;
-					std::cout << ("Got return value.\n");*/
-					/*if (GetGameplayAbility)
-					{
-						Definition->ProcessEvent(GetGameplayAbility, &GameplayAbility);
-						std::cout << ("Processing GetGameplayAbility");
-					}
-					else
-						std::cout << ("Get Gameplay Ability Failed!\n");*/
-					/*if (gameplayclass)
-					{
-						//std::cout << ("Granting ability: ") << GameplayAbility->GetFullName() << '\n';
-						std::cout << ("Granting ability: ");
-						GrantGameplayAbility(Pawn, gameplayclass);
-					}
-					else
-						std::cout << ("Failed to get GameplayAbilityClass!\n");*/
-				} 
 			}
+			/* else if (Definition->IsA(FortDecoItemDefinitionClass))
+			{
+				static auto BlueprintClassOffset = GetOffset(Definition, "BlueprintClass");
+				auto BlueprintPickup = Easy::SpawnActor(*(UObject**)(__int64(Definition) + BlueprintClassOffset), Helper::GetActorLocation(Pawn));
+
+				static auto PickUpActor = Pawn->Function("PickUpActor");
+				struct { UObject* PickupActor; UObject* PlacementDecoItemDefinition; } parms{ BlueprintPickup, Definition };
+
+				Pawn->ProcessEvent(PickUpActor, &parms);
+			} */
 		}
 
 		return nullptr;
@@ -593,10 +577,10 @@ namespace Inventory
 		}
 
 		auto currentWeapon = Helper::GetCurrentWeapon(Pawn);
-		static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+		static auto PickaxeDefObject = Helper::GetPickaxeDef(Controller);
 
 		// if (!QuickBars::IsHoldingPickaxe()) 
-		if (currentWeapon && Helper::GetWeaponData(currentWeapon) != PickaxeDef)
+		if (currentWeapon && Helper::GetWeaponData(currentWeapon) != PickaxeDefObject)
 		{
 			auto currentInstance = GetItemInstanceFromGuid(Controller, Inventory::GetWeaponGuid(currentWeapon));
 
@@ -679,7 +663,7 @@ namespace Inventory
 
 		if (FnVerDouble < 7.4)
 		{
-			const auto QuickBars = *Controller->Member<UObject*>(("QuickBars"));
+			const auto QuickBars = Inventory::GetQuickBars(Controller);
 
 			if (QuickBars)
 			{
@@ -735,8 +719,9 @@ namespace Inventory
 			static UObject* SOCFTIFn = itemInstance->Function(("SetOwningControllerForTemporaryItem"));
 
 			itemInstance->ProcessEvent(SOCFTIFn, &Controller);
-
-			auto bIsTemp = itemInstance->Member<bool>("bIsTemporaryItem");
+			
+			static auto bIsTemporaryItemOffset = GetOffset(itemInstance, "bIsTemporaryItem");
+			auto bIsTemp = (bool*)(__int64(itemInstance) + bIsTemporaryItemOffset);
 
 			if (bIsTemp)
 				*bIsTemp = true;
@@ -749,7 +734,8 @@ namespace Inventory
 			*entryDefinition = Definition;
 			*FFortItemEntry::GetCount(Entry) = Count;
 
-			*itemInstance->Member<UObject*>(("OwnerInventory")) = *Controller->Member<UObject*>(("WorldInventory"));
+			static auto OwnerInventoryOffset = GetOffset(itemInstance, "OwnerInventory");
+			*(UObject**)(__int64(itemInstance) + OwnerInventoryOffset) = Inventory::GetWorldInventory(Controller);
 
 			return itemInstance;
 		}
@@ -868,7 +854,7 @@ namespace Inventory
 			{
 				ReplicatedEntries->RemoveAt(x);
 				bSuccessful = true;
-				// break;
+				break;
 			}
 		}
 
@@ -901,9 +887,9 @@ namespace Inventory
 
 		if (7.4 > FnVerDouble)
 		{
-			auto QuickBars = Controller->Member<UObject*>(("QuickBars"));
+			auto QuickBars = Inventory::GetQuickBars(Controller);
 
-			if (QuickBars && *QuickBars)
+			if (QuickBars)
 			{
 				static UObject* GetItemGuidFn = FindObject(("Function /Script/FortniteGame.FortItem.GetItemGuid"));
 				FGuid Guid;
@@ -917,10 +903,10 @@ namespace Inventory
 					int Slot;
 				} SAIIParams{ Guid, Bars, Slot };
 
-				static auto SAIIFn = (*QuickBars)->Function(("ServerAddItemInternal"));
+				static auto SAIIFn = (QuickBars)->Function(("ServerAddItemInternal"));
 
 				if (SAIIFn)
-					(*QuickBars)->ProcessEvent(SAIIFn, &SAIIParams);
+					(QuickBars)->ProcessEvent(SAIIFn, &SAIIParams);
 			}
 		}
 
@@ -1198,6 +1184,7 @@ namespace Inventory
 						if (CurrentWeaponInList && (*CurrentWeaponInList->Member<FGuid>("ItemEntryGuid") == Guid))
 						{
 							CurrentWeaponList->RemoveAt(i);
+							break;
 						}
 					}
 				}
@@ -1212,7 +1199,14 @@ namespace Inventory
 		UObject* ItemInstance = nullptr;
 
 		auto ItemInstances = GetItemInstances(Controller);
+
+		if (!ItemInstances)
+			return nullptr;
+
 		auto Pawn = Helper::GetPawnFromController(Controller);
+
+		if (!Pawn)
+			return nullptr;
 
 		std::vector<UObject*> InstancesOfItem;
 
@@ -1228,7 +1222,8 @@ namespace Inventory
 
 		if (InstancesOfItem.size() > 0)
 		{
-			auto MaxStackCount = *Definition->Member<int>(("MaxStackSize"));
+			static auto MaxStackSizeOffset = GetOffset(Definition, "MaxStackSize");
+			auto MaxStackCount = *(int*)(__int64(Definition) + MaxStackSizeOffset);
 
 			// We need this skunked thing because if they have 2 full stacks and half a stack then we want to find the lowest stack and stack to there.
 			for (auto InstanceOfItem : InstancesOfItem)
@@ -1287,7 +1282,8 @@ namespace Inventory
 							if (currentCount)
 							{
 								//			      3	      +   2   -      6       =   -1
-								OverStack = *currentCount + Count - *Definition->Member<int>(("MaxStackSize"));
+								static auto MaxStackSizeOffset = GetOffset(Definition, "MaxStackSize");
+								OverStack = *currentCount + Count - *(int*)(__int64(Definition) + MaxStackSizeOffset);
 
 								// checks if it is going to overstack, if it is then we subtract the incoming count by the overstack, but its not then we just use the incoming count.
 								int AmountToStack = OverStack > 0 ? Count - OverStack : Count;
@@ -1430,7 +1426,7 @@ inline bool ServerExecuteInventoryWeaponHook(UObject* Controller, UFunction* Fun
 	if (Weapon && *Weapon)
 	{
 		auto Pawn = Helper::GetPawnFromController(Controller);
-		auto Guid = *(*Weapon)->Member<FGuid>(("ItemEntryGuid"));
+		auto Guid = Inventory::GetWeaponGuid(*Weapon);
 		auto Def = Helper::GetWeaponData(*Weapon);
 
 		int Ammo = 0; // TODO: implmeent
@@ -1543,12 +1539,13 @@ inline bool ServerHandlePickupHook(UObject* Pawn, UFunction* Function, void* Par
 				InFlyTime = Params->InFlyTime;
 			}
 
-			bool* bPickedUp = Params->Pickup->Member<bool>(("bPickedUp"));
+			static auto bPickedUpOffset = GetOffset(Params->Pickup, "bPickedUp");
+			bool* bPickedUp = (bool*)(__int64(Params->Pickup) + bPickedUpOffset);
 			auto Controller = Helper::GetControllerFromPawn(Pawn);
 
 			if (bPickedUp && !*bPickedUp && Controller)
 			{
-				auto PrimaryPickupItemEntry = Params->Pickup->CachedMember<__int64>(("PrimaryPickupItemEntry"));
+				auto PrimaryPickupItemEntry = Helper::GetEntryFromPickup(Params->Pickup);
 				static auto ItemDefinitionOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("ItemDefinition"));
 				static auto CountOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("Count"));
 
@@ -1600,7 +1597,7 @@ inline bool ServerHandlePickupHook(UObject* Pawn, UFunction* Function, void* Par
 				auto ItemToStackInto = Inventory::canStack(Controller, *Definition);
 				bShouldSwap = bShouldSwap && !ItemToStackInto;
 
-				auto incomingPickups = Pawn->Member<TArray<UObject*>>("IncomingPickups");
+				// auto incomingPickups = Pawn->Member<TArray<UObject*>>("IncomingPickups");
 
 				if (bShouldSwap && (QuickBars::IsHoldingPickaxe(Controller)
 					/* || incomingPickups->Num() >= 1) */)) // we should also check if the pickup is stackable, then it doesnt coutn but thats too complicated and slow so
@@ -1657,8 +1654,9 @@ inline bool ServerCombineInventoryItemsHook(UObject* Controller, UFunction* Func
 
 		if (!TargetCount || !SourceCount)
 			return false;
-
-		auto MaxStackCount = *TargetDefinition->Member<int>(("MaxStackSize"));
+		
+		static auto MaxStackSizeOffset = GetOffset(TargetDefinition, "MaxStackSize");
+		auto MaxStackCount = *(int*)(__int64(TargetDefinition) + MaxStackSizeOffset);
 
 		// dont ask how i made these bools up idfk
 
@@ -1910,7 +1908,7 @@ inline bool OnAboutToEnterBackpackHook(UObject* PickupEffect, UFunction* func, v
 	{
 		auto Controller = Helper::GetControllerFromPawn(Pawn);
 
-		auto PrimaryPickupItemEntry = Pickup->CachedMember<__int64>(("PrimaryPickupItemEntry"));
+		auto PrimaryPickupItemEntry = Helper::GetEntryFromPickup(Pickup);
 		static auto ItemDefinitionOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("ItemDefinition"));
 		static auto CountOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("Count"));
 
@@ -2086,7 +2084,7 @@ bool IsDroppable(UObject* CurrentItemDefinition, bool bTakePickaxe = true)
 	static auto BuildingItemData_Floor = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_Floor.BuildingItemData_Floor"));
 	static auto BuildingItemData_Stair_W = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_Stair_W.BuildingItemData_Stair_W"));
 	static auto BuildingItemData_RoofS = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_RoofS.BuildingItemData_RoofS"));
-	static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+	static auto PickaxeDef = Helper::GetPickaxeDef(nullptr);
 
 	if (CurrentItemDefinition == BuildingItemData_Wall || CurrentItemDefinition == BuildingItemData_Floor
 		|| CurrentItemDefinition == (BuildingItemData_Stair_W) || CurrentItemDefinition == (BuildingItemData_RoofS) || CurrentItemDefinition == PickaxeDef)
@@ -2101,7 +2099,8 @@ void ClearInventory(UObject* Controller, bool bTakePickaxe = false)
 	static auto BuildingItemData_Floor = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_Floor.BuildingItemData_Floor"));
 	static auto BuildingItemData_Stair_W = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_Stair_W.BuildingItemData_Stair_W"));
 	static auto BuildingItemData_RoofS = FindObject(("FortBuildingItemDefinition /Game/Items/Weapons/BuildingTools/BuildingItemData_RoofS.BuildingItemData_RoofS"));
-	static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+	static auto EditTool = FindObject(("FortEditToolItemDefinition /Game/Items/Weapons/BuildingTools/EditTool.EditTool"));
+	static auto PickaxeDef = Helper::GetPickaxeDef(Controller);
 
 	auto ItemInstances = Inventory::GetItemInstances(Controller);
 
@@ -2117,7 +2116,8 @@ void ClearInventory(UObject* Controller, bool bTakePickaxe = false)
 				// continue;
 
 			if (!CurrentItemInstance || !CurrentItemDefinition || CurrentItemDefinition == BuildingItemData_Wall || CurrentItemDefinition == BuildingItemData_Floor
-				|| CurrentItemDefinition == (BuildingItemData_Stair_W) || CurrentItemDefinition == (BuildingItemData_RoofS) || (bTakePickaxe ? false : CurrentItemDefinition == PickaxeDef))
+				|| CurrentItemDefinition == (BuildingItemData_Stair_W) || CurrentItemDefinition == (BuildingItemData_RoofS) || CurrentItemDefinition == EditTool 
+				|| (bTakePickaxe ? false : CurrentItemDefinition == PickaxeDef))
 				continue;
 
 			Inventory::TakeItem(Controller, Inventory::GetItemGuid(CurrentItemInstance), *FFortItemEntry::GetCount(GetItemEntryFromInstance(CurrentItemInstance)), true);

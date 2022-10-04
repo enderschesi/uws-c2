@@ -20,7 +20,8 @@ int GetMaxBullets(UObject* Definition)
 		FName                                  RowName;                                           // 0x8(0x8)(Edit, BlueprintVisible, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
 	};
 
-	auto statHandle = Definition->Member<FDataTableRowHandle>("WeaponStatHandle");
+	static auto WeaponStatHandleOffset = GetOffset(Definition, "WeaponStatHandle");
+	auto statHandle = (FDataTableRowHandle*)(__int64(Definition) + WeaponStatHandleOffset);
 
 	if (!statHandle || !statHandle->DataTable || !statHandle->RowName.ComparisonIndex)
 		return 0;
@@ -30,32 +31,76 @@ int GetMaxBullets(UObject* Definition)
 	// auto RangedWeaponRows = GetRowMap(RangedWeaponsTable);
 
 	static auto RowStructOffset = GetOffset(RangedWeaponsTable, "RowStruct");
-	auto& RangedWeaponRows = *(TMap<FName, uint8_t*>*)(__int64(RangedWeaponsTable) + (RowStructOffset + sizeof(UObject*))); // because after rowstruct is rowmap
+	auto RangedWeaponRows = *(TMap<FName, uint8_t*>*)(__int64(RangedWeaponsTable) + (RowStructOffset + sizeof(UObject*))); // because after rowstruct is rowmap
 
 	static auto ClipSizeOffset = FindOffsetStruct("ScriptStruct /Script/FortniteGame.FortBaseWeaponStats", "ClipSize");
 
 	// std::cout << "Number of RangedWeapons: " << RangedWeaponRows.Pairs.Elements.Data.Num() << '\n';
 
-	for (int i = 0; i < RangedWeaponRows.Pairs.Elements.Data.Num(); i++)
 	{
-		auto& Man = RangedWeaponRows.Pairs.Elements.Data.At(i);
-		auto& Pair = Man.ElementData.Value;
-		auto RowFName = Pair.First;
-
-		if (!RowFName.ComparisonIndex)
-			continue;
-
-		// if (RowFName.ToString() == statHandle->RowName.ToString())
-		if (RowFName.ComparisonIndex == statHandle->RowName.ComparisonIndex)
+		for (int i = 0; i < RangedWeaponRows.Pairs.Elements.Data.Num(); i++)
 		{
-			auto data = Pair.Second;
-			auto ClipSize = *(int*)(__int64(data) + ClipSizeOffset);
-			// std::cout << "ClipSize: " << ClipSize << '\n';
-			return ClipSize;
+			auto& Man = RangedWeaponRows.Pairs.Elements.Data.At(i);
+			auto& Pair = Man.ElementData.Value;
+			auto RowFName = Pair.First;
+
+			if (!RowFName.ComparisonIndex)
+				continue;
+
+			// if (RowFName.ToString() == statHandle->RowName.ToString())
+			if (RowFName.ComparisonIndex == statHandle->RowName.ComparisonIndex)
+			{
+				auto data = Pair.Second;
+				auto ClipSize = *(int*)(__int64(data) + ClipSizeOffset);
+				// std::cout << "ClipSize: " << ClipSize << '\n';
+				return ClipSize;
+			}
 		}
 	}
 
 	return 0;
+}
+
+static UObject* GetDefaultObject(UObject* Class)
+{
+	if (!Class)
+		return nullptr;
+
+	UObject* DefaultObject = nullptr;
+
+	if (!Class->GetFullName().contains("Class "))
+		DefaultObject = Class; //->CreateDefaultObject(); // Easy::SpawnObject(GameplayAbilityClass, GameplayAbilityClass->OuterPrivate);
+	else
+	{
+		// im dumb
+		static std::unordered_map<std::string, UObject*> defaultAbilities; // normal class name, default ability.
+
+		auto name = Class->GetFullName();
+
+		auto defaultafqaf = defaultAbilities.find(name);
+
+		if (defaultafqaf != defaultAbilities.end())
+		{
+			DefaultObject = defaultafqaf->second;
+		}
+		else
+		{
+			// skunked class to default
+			auto ending = name.substr(name.find_last_of(".") + 1);
+			auto path = name.substr(0, name.find_last_of(".") + 1);
+
+			path = path.substr(path.find_first_of(" ") + 1);
+
+			auto DefaultAbilityName = std::format("{1} {0}Default__{1}", path, ending);
+
+			// std::cout << "DefaultAbilityName: " << DefaultAbilityName << '\n';
+
+			DefaultObject = FindObject(DefaultAbilityName);
+			defaultAbilities.emplace(name, DefaultObject);
+		}
+	}
+
+	return DefaultObject;
 }
 
 UObject* GetGameViewport()
@@ -361,6 +406,34 @@ namespace Helper
 
 			return String.Data.GetData() ? String.ToString() : "INVALID_STRING";
 		}
+
+		FName StringToName(FString Str)
+		{
+			static auto KTL = FindObject(("KismetStringLibrary /Script/Engine.Default__KismetStringLibrary"));
+
+			FName Ret;
+
+			if (KTL)
+			{
+				static auto fn = KTL->Function(("Conv_StringToName"));
+
+				struct {
+					FString InStr;
+					FName ReturnValue;
+				} params{ Str };
+
+				if (fn)
+					KTL->ProcessEvent(fn, &params);
+				else
+					std::cout << ("Unable to find Conv_TextToString!\n");
+
+				Ret = params.ReturnValue;
+			}
+			else
+				std::cout << ("Unable to find KTL!\n");
+
+			return Ret;
+		}
 	}
 
 	static FName StringToName(FString Str)
@@ -411,6 +484,14 @@ namespace Helper
 			K2_GetActorRotationFN = Actor->Function(("K2_GetActorRotation"));
 
 		return FRotator();
+	}
+
+	__int64* GetEntryFromPickup(UObject* Pickup)
+	{
+		static auto PrimaryPickupItemEntryOffset = GetOffset(Pickup, "PrimaryPickupItemEntry");
+		auto PrimaryPickupItemEntry = (__int64*)(__int64(Pickup) + PrimaryPickupItemEntryOffset);
+
+		return PrimaryPickupItemEntry;
 	}
 
 	void ShowBuilding(UObject* Foundation, bool bShow = true)
@@ -683,11 +764,44 @@ namespace Helper
 		return Location + RightVector * 70.0f + FVector{ 0, 0, 50 };
 	}
 
+	UObject* GetTransientPackage()
+	{
+		static auto TransientPackage = FindObject("Package /Engine/Transient");
+		return TransientPackage;
+	}
+
+	static std::vector<UObject*> GetAllObjectsOfClass(UObject* Class)
+	{
+		std::vector<UObject*> Objects;
+
+		for (int32_t i = 0; i < (ObjObjects ? ObjObjects->Num() : OldObjects->Num()); i++)
+		{
+			auto Object = ObjObjects ? ObjObjects->GetObjectById(i) : OldObjects->GetObjectById(i);
+
+			if (!Object) continue;
+
+			if (Object->IsA(Class))
+			{
+				Objects.push_back(Object);
+			}
+		}
+
+		return Objects;
+	}
+
+	UObject* GetBGAClass()
+	{
+		static auto BGAClass = FindObject("Class /Script/Engine.BlueprintGeneratedClass");
+
+		return BGAClass;
+	}
+
 	void EnablePickupAnimation(UObject* Pawn, UObject* Pickup, float FlyTime = 0.75f, FVector StartDirection = FVector())
 	{
 		if (bPickupAnimsEnabled)
 		{
-			auto PickupLocationData = Pickup->Member<FFortPickupLocationData>("PickupLocationData");
+			static auto PickupLocationDataOffset = GetOffset(Pickup, "PickupLocationData");
+			auto PickupLocationData = (FFortPickupLocationData*)(__int64(Pickup) + PickupLocationDataOffset);
 
 			if (PickupLocationData)
 			{
@@ -697,7 +811,7 @@ namespace Helper
 				PickupLocationData->FlyTime = FlyTime;
 				PickupLocationData->StartDirection = StartDirection;
 				static auto GuidOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("ItemGuid"));
-				auto Guid = (FGuid*)(__int64(&*Pickup->CachedMember<__int64>(("PrimaryPickupItemEntry"))) + GuidOffset);
+				auto Guid = (FGuid*)(__int64(GetEntryFromPickup(Pickup)) + GuidOffset);
 
 				if (Guid)
 					PickupLocationData->PickupGuid = *Guid; // *FFortItemEntry::GetGuid(Pickup->Member<__int64>(("PrimaryPickupItemEntry")));
@@ -754,7 +868,7 @@ namespace Helper
 
 		if (Pickup && Definition)
 		{
-			auto ItemEntry = Pickup->CachedMember<__int64>(("PrimaryPickupItemEntry"));
+			auto ItemEntry = GetEntryFromPickup(Pickup);
 
 			static auto CountOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("Count"));
 			static auto ItemDefOffset = FindOffsetStruct(("ScriptStruct /Script/FortniteGame.FortItemEntry"), ("ItemDefinition"));
@@ -1194,7 +1308,7 @@ namespace Helper
 
 	FVector GetPlayerStart(UObject** PlayerStartActor = nullptr)
 	{
-		static auto WarmupClass = FindObject(("Class /Script/FortniteGame.FortPlayerStartWarmup"));
+		static auto WarmupClass = bIsCreative ? FindObject("Class /Script/FortniteGame.FortPlayerStartCreative") : FindObject(("Class /Script/FortniteGame.FortPlayerStartWarmup"));
 		TArray<UObject*> OutActors = GetAllActorsOfClass(WarmupClass);
 
 		auto ActorsNum = OutActors.Num();
@@ -1206,14 +1320,14 @@ namespace Helper
 
 		auto GamePhase = *GetGamePhase();
 
-		if (WarmupClass && Engine_Version != 419 && ActorsNum != 0 && (GamePhase <= EAthenaGamePhase::Warmup))
+		if (WarmupClass && ActorsNum != 0 && (GamePhase <= EAthenaGamePhase::Warmup))
 		{
-			auto ActorToUseNum = RandomIntInRange(2, ActorsNum);
+			auto ActorToUseNum = RandomIntInRange(2, ActorsNum - 1);
 			auto ActorToUse = (OutActors)[ActorToUseNum];
 
 			while (!ActorToUse)
 			{
-				ActorToUseNum = RandomIntInRange(2, ActorsNum);
+				ActorToUseNum = RandomIntInRange(2, ActorsNum - 1);
 				ActorToUse = (OutActors)[ActorToUseNum];
 			}
 
@@ -1357,6 +1471,26 @@ namespace Helper
 		return ActorsNum;
 	}
 
+	void SetGamePhase(EAthenaGamePhase newPhase)
+	{
+		auto GamePhase = Helper::GetGameState()->Member<EAthenaGamePhase>(("GamePhase"));
+
+		// if (Engine_Version >= 420)
+		if (GamePhase)
+		{
+			*GamePhase = newPhase;
+
+			struct {
+				EAthenaGamePhase OldPhase;
+			} params2{ EAthenaGamePhase::None };
+
+			static const auto fnGamephase = Helper::GetGameState()->Function(("OnRep_GamePhase"));
+
+			if (fnGamephase)
+				Helper::GetGameState()->ProcessEvent(fnGamephase, &params2);
+		}
+	}
+
 	namespace Console
 	{
 		static UObject** ViewportConsole = nullptr;
@@ -1487,16 +1621,32 @@ namespace Helper
 			Actor->ProcessEvent(SetActorScaleFn, &params);
 	}
 
-	static FString GetfPlayerName(UObject* PlayerState)
+	static FString GetfPlayerName(UObject* Controller)
 	{
+		if (!Controller)
+			return FString();
+
+		auto MCPProfileGroupPTR = Controller->Member<UObject*>("McpProfileGroup");
+
 		FString Name; // = *PlayerState->Member<FString>(("PlayerNamePrivate"));
 
-		if (PlayerState)
+		if (!MCPProfileGroupPTR || !*MCPProfileGroupPTR)
 		{
-			static auto fn = PlayerState->Function(("GetPlayerName"));
+			auto PlayerState = Helper::GetPlayerStateFromController(Controller);
 
-			if (fn)
-				PlayerState->ProcessEvent(fn, &Name);
+			if (PlayerState)
+			{
+				static auto fn = PlayerState->Function(("GetPlayerName"));
+
+				if (fn)
+					PlayerState->ProcessEvent(fn, &Name);
+			}
+		}
+		else
+		{
+			auto MCPProfileGroup = *MCPProfileGroupPTR;
+
+			Name = *MCPProfileGroup->Member<FString>("PlayerName");
 		}
 
 		return Name;
@@ -1504,7 +1654,19 @@ namespace Helper
 
 	static bool IsSmallZoneEnabled()
 	{
-		return bIsLateGame;
+		return bIsLateGame || FnVerDouble >= 13.00;
+	}
+
+	float GetDistanceTo(UObject* Actor, UObject* OtherActor)
+	{
+		static auto GetDistanceTo = Actor->Function("GetDistanceTo");
+
+		struct { UObject* otherActor; float distance; } GetDistanceTo_Params{ OtherActor };
+
+		if (GetDistanceTo)
+			Actor->ProcessEvent(GetDistanceTo, &GetDistanceTo_Params);
+
+		return GetDistanceTo_Params.distance;
 	}
 
 	static UObject* GetRandomFoundation()
@@ -1534,9 +1696,9 @@ namespace Helper
 		return nullptr;
 	}
 
-	static std::string GetPlayerName(UObject* PlayerState)
+	static std::string GetPlayerName(UObject* Controller)
 	{
-		auto name = GetfPlayerName(PlayerState);
+		auto name = GetfPlayerName(Controller);
 		return name.Data.GetData() ? name.ToString() : "";
 	}
 
@@ -1592,6 +1754,12 @@ namespace Helper
 		return 0;
 	}
 
+	static UObject* GetPickaxeDef(UObject* Controller)
+	{
+		// GlobalPickaxeDefObject = FindObject(PickaxeDef);
+		return GlobalPickaxeDefObject;
+	}
+
 	void SetHealth(UObject* Pawn, float Health)
 	{
 		static auto SetHealth = Pawn->Function("SetHealth");
@@ -1607,7 +1775,10 @@ namespace Helper
 
 		if (Engine_Version <= 420)
 		{
-			*(PlayerState ? PlayerState : *Pawn->Member<UObject*>("PlayerState"))->Member<float>("MaxShield") = MaxShield;
+			PlayerState = PlayerState ? PlayerState : Helper::GetPlayerStateFromController(Helper::GetControllerFromPawn(Pawn));
+
+			static auto MaxShieldOffset = GetOffset(PlayerState, "MaxShield");
+			*(float*)(__int64(PlayerState) + MaxShieldOffset) = MaxShield;
 		}
 		else
 		{
@@ -1626,6 +1797,62 @@ namespace Helper
 		return *(*GetEngine()->Member<UObject*>("AssetManager"))->Member<UObject*>("GameData");
 	}
 
+	void ApplyCID(UObject* Pawn, UObject* CID)
+	{
+		// CID->ItemVariants
+		// CID->DefaultBackpack
+
+		// CID->Hero->Specialization
+		
+		if (!CID)
+			return;
+
+		static auto CCPClass = FindObject("Class /Script/FortniteGame.CustomCharacterPart");
+
+		static auto HeroDefinitionOffset = GetOffset(CID, "HeroDefinition");
+
+		auto HeroDefinition = *(UObject**)(__int64(CID) + HeroDefinitionOffset);
+
+		if (!HeroDefinition)
+			return;
+
+		auto HeroSpecializations = HeroDefinition->CachedMember<TArray<TSoftObjectPtr>>("Specializations");
+
+		if (!HeroSpecializations)
+		{
+			std::cout << "No HeroSpecializations!\n";
+			return;
+		}
+
+		for (int j = 0; j < HeroSpecializations->Num(); j++)
+		{
+			static auto SpecializationClass = FindObject("Class /Script/FortniteGame.FortHeroSpecialization");
+
+			auto SpecializationName = HeroSpecializations->At(j).ObjectID.AssetPathName.ToString();
+
+			auto Specialization = StaticLoadObject(SpecializationClass, nullptr, SpecializationName);
+
+			auto CharacterParts = Specialization->Member<TArray<TSoftObjectPtr>>("CharacterParts");
+
+			if (!CharacterParts)
+			{
+				std::cout << "No CharacterParts!\n";
+				return;
+			}
+
+			for (int i = 0; i < CharacterParts->Num(); i++)
+			{
+				auto CharacterPart = StaticLoadObject(CCPClass, nullptr, CharacterParts->At(i).ObjectID.AssetPathName.ToString());
+
+				if (CharacterPart)
+				{
+					auto PartType = *CharacterPart->CachedMember<TEnumAsByte<EFortCustomPartType>>("CharacterPartType");
+					Helper::ChoosePart(Pawn, PartType, CharacterPart);
+				}
+			}
+		}
+	}
+
 	UObject* InitPawn(UObject* PC, bool bResetCharacterParts = false, FVector Location = Helper::GetPlayerStart(), bool bResetTeams = false)
 	{
 		UObject* PlayerState = GetPlayerStateFromController(PC);
@@ -1641,8 +1868,6 @@ namespace Helper
 		Pawn->ProcessEvent(SetReplicateMovementFn, &bruh);
 
 		// setBitfield(Pawn, "bReplicateMovement", true);
-
-		// prob not needed here from
 
 		static auto PossessFn = PC->Function(("Possess"));
 
@@ -1668,11 +1893,17 @@ namespace Helper
 		else
 			std::cout << ("Unable to find setMaxHealthFn!\n");
 
-		if (FnVerDouble < 4)
-		{
-			static const auto HeroType = FindObject(("FortHeroType /Game/Athena/Heroes/HID_058_Athena_Commando_M_SkiDude_GER.HID_058_Athena_Commando_M_SkiDude_GER"));
+		auto CIDObject = CIDToUse == "None" ? nullptr : FindObject(CIDToUse); // we need the check cuz if we dont have staticfindobject then it finds it
 
-			*PlayerState->Member<UObject*>(("HeroType")) = HeroType;
+		// if (FnVerDouble < 4)
+		{
+			static auto HeroDefinitionOffset = GetOffset(CIDObject, "HeroDefinition");
+
+			const auto HeroType = CIDObject ? *(UObject**)(__int64(CIDObject) + HeroDefinitionOffset)
+				: FindObject(("FortHeroType /Game/Athena/Heroes/HID_058_Athena_Commando_M_SkiDude_GER.HID_058_Athena_Commando_M_SkiDude_GER"));
+
+			static auto HeroTypeOffset = GetOffset(PlayerState, "HeroType");
+			*(UObject**)(__int64(PlayerState) + HeroTypeOffset) = HeroType;
 
 			static auto OnRepHeroType = PlayerState->Function(("OnRep_HeroType"));
 
@@ -1680,11 +1911,14 @@ namespace Helper
 				PlayerState->ProcessEvent(OnRepHeroType);
 		}
 
-		if (FnVerDouble < 19.00) // they are just automatic when you touch the ground lol
+		if (FnVerDouble < 19.00 && bResetCharacterParts) // they are just automatic when you touch the ground lol
 		{
+			static auto CCPClass = FindObject("Class /Script/FortniteGame.CustomCharacterPart");
+			static auto backpackPart = FindObject("CustomCharacterPart /Game/Characters/CharacterParts/Backpacks/NoBackpack.NoBackpack");
+
 			static auto headPart = FindObject(("CustomCharacterPart /Game/Characters/CharacterParts/Female/Medium/Heads/F_Med_Head1.F_Med_Head1"));
 			static auto bodyPart = FindObject(("CustomCharacterPart /Game/Characters/CharacterParts/Female/Medium/Bodies/F_Med_Soldier_01.F_Med_Soldier_01"));
-			static auto noBackpack = FindObject("CustomCharacterPart /Game/Characters/CharacterParts/Backpacks/NoBackpack.NoBackpack");
+			static auto hatPart = nullptr;
 
 			if (!headPart)
 				headPart = FindObject(("CustomCharacterPart /Game/Characters/CharacterParts/Female/Medium/Heads/CP_Head_F_RebirthDefaultA.CP_Head_F_RebirthDefaultA"));
@@ -1692,20 +1926,26 @@ namespace Helper
 			if (!bodyPart)
 				bodyPart = FindObject(("CustomCharacterPart /Game/Athena/Heroes/Meshes/Bodies/CP_Body_Commando_F_RebirthDefaultA.CP_Body_Commando_F_RebirthDefaultA"));
 
-			if (headPart && bodyPart && bResetCharacterParts)
+			if (headPart && bodyPart)
 			{
 				Helper::ChoosePart(Pawn, EFortCustomPartType::Head, headPart);
 				Helper::ChoosePart(Pawn, EFortCustomPartType::Body, bodyPart);
-				Helper::ChoosePart(Pawn, EFortCustomPartType::Backpack, noBackpack);
-
-				static auto OnRep_Parts = (FnVerDouble >= 10) ? PlayerState->Function(("OnRep_CharacterData")) : PlayerState->Function(("OnRep_CharacterParts")); //Make sure its s10 and up
-
-				if (OnRep_Parts)
-					PlayerState->ProcessEvent(OnRep_Parts, nullptr);
+				Helper::ChoosePart(Pawn, EFortCustomPartType::Hat, hatPart);
+				Helper::ChoosePart(Pawn, EFortCustomPartType::Backpack, backpackPart);
 			}
 			else
 				std::cout << ("Unable to find Head and Body!\n");
+
+			if (CIDObject)
+			{
+				ApplyCID(Pawn, CIDObject);
+			}
 		}
+
+		static auto OnRep_Parts = (FnVerDouble >= 10) ? PlayerState->Function(("OnRep_CharacterData")) : PlayerState->Function(("OnRep_CharacterParts"));
+
+		if (OnRep_Parts)
+			PlayerState->ProcessEvent(OnRep_Parts, nullptr);
 
 		return Pawn;
 	}
@@ -1780,6 +2020,35 @@ namespace Helper
 
 		if (fn)
 			BuildingActor->ProcessEvent(fn, &bPropagateSilentDeath);
+	}
+
+	void DumpDeathCauses()
+	{
+		auto MappingsSoft = Helper::GetGameData()->Member<TSoftObjectPtr>("FortDeathCauseFromTagMapping");
+
+		auto Mappings = StaticLoadObject(FindObject("Class /Script/FortniteGame.FortDeathCauseFromTagMapping"), nullptr, MappingsSoft->ObjectID.AssetPathName.ToString());
+
+		struct FFortTagToDeathCause
+		{
+			FGameplayTag                                DeathTag;                                                 // 0x0000(0x0008) (Edit, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
+			EDeathCause                                        DBNOCause;                                                // 0x0008(0x0001) (Edit, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
+			EDeathCause                                        DeathCause;                                               // 0x0009(0x0001) (Edit, ZeroConstructor, IsPlainOldData, NoDestructor, HasGetValueTypeHash, NativeAccessSpecifierPublic)
+			unsigned char                                      UnknownData00[0x2];                                       // 0x000A(0x0002) MISSED OFFSET
+		};
+
+		auto TagToDeathCauseArray = Mappings->Member<TArray<FFortTagToDeathCause>>("TagToDeathCauseArray");
+
+		if (TagToDeathCauseArray)
+		{
+			std::cout << "Num: " << TagToDeathCauseArray->Num() << '\n';
+
+			for (int i = 0; i < TagToDeathCauseArray->Num(); i++)
+			{
+				auto& DeathCauseTag = TagToDeathCauseArray->At(i);
+
+				WriteToFile(std::format("[{}] {} {}\n", DeathCauseTag.DeathTag.TagName.ToString(), std::to_string((uint8_t)DeathCauseTag.DeathCause), std::to_string((uint8_t)DeathCauseTag.DBNOCause)));
+			}
+		}
 	}
 
 	bool SetActorLocation(UObject* Actor, const FVector& Location)
@@ -1867,36 +2136,30 @@ namespace Helper
 		}
 	}
 
-	FBuildingSupportCellIndex GetCellIndexFromLocation(const FVector& Location)
-	{
-		auto StructuralSupportSystem = GetStructuralSupportSystem();
-
-		struct
-		{
-			FVector                                     WorldLoc;                                                 // (ConstParm, Parm, OutParm, ReferenceParm, IsPlainOldData)
-			FBuildingSupportCellIndex                   OutGridIndices;                                           // (Parm, OutParm)
-			bool                                               ReturnValue;                                              // (Parm, OutParm, ZeroConstructor, ReturnParm, IsPlainOldData)
-		} UBuildingStructuralSupportSystem_K2_GetGridIndicesFromWorldLoc_Params{Location};
-
-		static auto K2_GetGridIndicesFromWorldLoc = StructuralSupportSystem->Function("K2_GetGridIndicesFromWorldLoc");
-
-		if (K2_GetGridIndicesFromWorldLoc)
-			StructuralSupportSystem->ProcessEvent(K2_GetGridIndicesFromWorldLoc, &UBuildingStructuralSupportSystem_K2_GetGridIndicesFromWorldLoc_Params);
-
-		return UBuildingStructuralSupportSystem_K2_GetGridIndicesFromWorldLoc_Params.OutGridIndices;
-	}
-
 	void KickController(UObject* Controller, FString Reason)
 	{
-		if (KickPlayer && Controller && Reason.Data.GetData())
+		if (false && KickPlayer && Controller && Reason.Data.GetData())
 		{
-			FText text = Conversion::StringToText(Reason);
+			// FText text = Conversion::StringToText(Reason);
 			auto World = Helper::GetWorld();
-			auto GameMode = *World->Member<UObject*>(("AuthorityGameMode"));
+			auto GameMode = Helper::GetGameMode();
 			auto GameSession = *World->Member<UObject*>(("GameSession"));
 
 			if (GameSession)
-				KickPlayer(GameSession, Controller, text); // TODO: Use a differentfunction, this crashes after a second try.
+			{
+				std::cout << "EH!\n";
+
+				static auto ServerReturnToMainMenu = Controller->Function("ServerReturnToMainMenu");
+
+				Controller->ProcessEvent(ServerReturnToMainMenu);
+
+				/*
+				static auto ClientReturnToMainMenu = Controller->Function("ClientReturnToMainMenu");
+
+				if (ClientReturnToMainMenu)
+					Controller->ProcessEvent(ClientReturnToMainMenu, &Reason);
+				*/
+			}
 			else
 				std::cout << ("Unable to find GameSession!\n");
 		}
@@ -1932,8 +2195,12 @@ namespace Helper
 			stream.close();
 
 			FString Reason;
-			Reason.Set(L"You are banned!");
-			Helper::KickController(Controller, Reason);
+			Reason.Set(L"You have beeb banned!");
+
+			static auto ClientReturnToMainMenu = Controller->Function("ClientReturnToMainMenu");
+
+			if (ClientReturnToMainMenu)
+				Controller->ProcessEvent(ClientReturnToMainMenu, &Reason);
 
 			return true;
 		}
@@ -1991,5 +2258,15 @@ namespace Helper
 
 			return false;
 		}
+	}
+
+	float GetRespawnHeight()
+	{
+		auto Playlist = GetPlaylist();
+
+		if (Playlist)
+			return Playlist->Member<FScalableFloat>("RespawnHeight")->Value; // improper cuz yeah but yeah
+
+		return 10000.f;
 	}
 }

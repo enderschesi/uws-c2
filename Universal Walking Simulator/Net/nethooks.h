@@ -164,6 +164,8 @@ UObject* SpawnPlayActorDetour(UObject* World, UObject* NewPlayer, ENetRole Remot
 	{
 		LastResetNum = AmountOfRestarts;
 
+		// CreateThread(0, 0, LootingV2::SummonFloorLoot, 0, 0, 0);
+
 		if (Engine_Version >= 423)
 		{
 			Helper::GetGameState()->ProcessEvent("OnRep_CurrentPlaylistInfo"); // fix battle bus lol
@@ -195,29 +197,35 @@ UObject* SpawnPlayActorDetour(UObject* World, UObject* NewPlayer, ENetRole Remot
 	if (!PlayerState) // this happened somehow
 		return PlayerController;
 
-	auto OPlayerName = Helper::GetPlayerName(PlayerState);
+	auto OPlayerName = Helper::GetPlayerName(PlayerController);
 	std::string PlayerName = OPlayerName;
 	std::transform(OPlayerName.begin(), OPlayerName.end(), OPlayerName.begin(), ::tolower);
+
+	static auto ClientReturnToMainMenu = PlayerController->Function("ClientReturnToMainMenu");
 
 	if (OPlayerName.contains(("fuck")) || OPlayerName.contains(("shit")))
 	{
 		FString Reason;
 		Reason.Set(L"Inappropriate name!");
-		Helper::KickController(PlayerController, Reason);
+
+		if (ClientReturnToMainMenu)
+			PlayerController->ProcessEvent(ClientReturnToMainMenu, &Reason);
 	}
 
 	if (OPlayerName.length() >= 40)
 	{
 		FString Reason;
 		Reason.Set(L"Too long of a name!");
-		Helper::KickController(PlayerController, Reason);
+
+		if (ClientReturnToMainMenu)
+			PlayerController->ProcessEvent(ClientReturnToMainMenu, &Reason);
 	}
 
-	if (FnVerDouble >= 12.61) // fix crash mostly
+	/* if (FnVerDouble >= 12.61) // fix crash kinda
 	{
 		static auto NetPriorityOffset = GetOffset(PlayerController, "NetPriority");
 		*(float*)(__int64(Inventory::GetWorldInventory(PlayerController)) + NetPriorityOffset) = 3.0f;
-	}
+	} */
 
 	static auto Connection_PlayerController = GetOffset(NewPlayer, "PlayerController");
 	*(UObject**)(__int64(NewPlayer) + Connection_PlayerController) = PlayerController;
@@ -290,19 +298,42 @@ UObject* SpawnPlayActorDetour(UObject* World, UObject* NewPlayer, ENetRole Remot
 	// FindObjectOld(".FortReplicationGraphNode_AlwaysRelevantForSquad_")->Member<TArray<UObject*>>("PlayerStates")->Add(PlayerState);
 
 	if (!Pawn)
-		return nullptr; // PlayerController;
+	{
+		std::cout << "Failed to spawn Pawn!\n";
+		return PlayerController;
+	}
 
-	if (Engine_Version > 419)
-		Teams::AssignTeam(PlayerController);
+	// todo: not do this for invicibility
 
-	// if (FnVerDouble < 13.00 || std::floor(FnVerDouble) == 15)
+	if (Engine_Version <= 421 || NoMcpAddr)
+	{
+		static auto CheatManagerOffset = GetOffset(PlayerController, "CheatManager");
+		auto CheatManager = (UObject**)(__int64(PlayerController) + CheatManagerOffset);
+
+		static auto CheatManagerClass = FindObject("Class /Script/Engine.CheatManager");
+		*CheatManager = Easy::SpawnObject(CheatManagerClass, PlayerController);
+
+		static auto God = (*CheatManager)->Function("God");
+
+		if (God)
+			(*CheatManager)->ProcessEvent(God);
+	}
+
+	if (Engine_Version > 420)
+	{
+		// Teams::AssignTeam(PlayerController);
+	}
+
+	if (FnVerDouble < AboveVersionDisableAbilities)
+	{
 		GiveAllBRAbilities(Pawn);
+	}
 
 	// if (Engine_Version >= 420) // && FnVerDouble < 19.00)
 	{
 		Inventory::GiveStartingItems(PlayerController); // Gives the needed items like edit tool and builds
 
-		static auto PickaxeDef = FindObject(("FortWeaponMeleeItemDefinition /Game/Athena/Items/Weapons/WID_Harvest_Pickaxe_Athena_C_T01.WID_Harvest_Pickaxe_Athena_C_T01"));
+		auto PickaxeDef = Helper::GetPickaxeDef(PlayerController);
 
 		static int LastResetNum = 0;
 
@@ -338,21 +369,13 @@ UObject* SpawnPlayActorDetour(UObject* World, UObject* NewPlayer, ENetRole Remot
 		}
 	}
 
-	// todo: not do this for invicibility
-
-	if (Engine_Version <= 421 || NoMcpAddr)
+	/* static auto SeasonLevelUIDisplayOffset = GetOffset(PlayerState, "SeasonLevelUIDisplay");
+	
+	if (SeasonLevelUIDisplayOffset != -1)
 	{
-		static auto CheatManagerOffset = GetOffset(PlayerController, "CheatManager");
-		auto CheatManager = (UObject**)(__int64(PlayerController) + CheatManagerOffset);
-
-		static auto CheatManagerClass = FindObject("Class /Script/Engine.CheatManager");
-		*CheatManager = Easy::SpawnObject(CheatManagerClass, PlayerController);
-
-		static auto God = (*CheatManager)->Function("God");
-
-		if (God)
-			(*CheatManager)->ProcessEvent(God);
-	}
+		*(int*)(__int64(PlayerState) + SeasonLevelUIDisplayOffset) = 1;
+		PlayerState->ProcessEvent("OnRep_SeasonLevelUIDisplay");
+	} */
 
 	std::cout << ("Spawned Player!\n");
 
@@ -480,6 +503,12 @@ void World_NotifyControlMessageDetour(UObject* World, UObject* Connection, uint8
 
 char Beacon_NotifyControlMessageDetour(UObject* Beacon, UObject* Connection, uint8_t MessageType, __int64* Bunch)
 {
+	if (MessageType)
+	{
+		std::cout << "Message 15!\n";
+		return true;
+	}
+
 	std::cout << "beacon ncm!\n";
 	World_NotifyControlMessageDetour(Helper::GetWorld(), Connection, MessageType, Bunch);
 	return true;
@@ -503,7 +532,7 @@ void InitializeNetHooks()
 	MH_CreateHook((PVOID)SpawnPlayActorAddr, SpawnPlayActorDetour, (void**)&SpawnPlayActor);
 	MH_EnableHook((PVOID)SpawnPlayActorAddr);
 
-	if (FnVerDouble < 14.00)
+	if (FnVerDouble < 11.00 || std::floor(FnVerDouble) == 13)
 	{
 		if (Engine_Version != 421 && Engine_Version != 419) // we dont really need this im just too lazy to get setworld sig
 		{
@@ -513,6 +542,12 @@ void InitializeNetHooks()
 			MH_CreateHook((PVOID)World_NotifyControlMessageAddr, World_NotifyControlMessageDetour, (void**)&World_NotifyControlMessage);
 			MH_EnableHook((PVOID)World_NotifyControlMessageAddr);
 		}
+	}
+
+	if (std::floor(FnVerDouble) == 14 || std::floor(FnVerDouble) == 18)
+	{
+		MH_CreateHook((PVOID)Beacon_NotifyControlMessageAddr, Beacon_NotifyControlMessageDetour, (void**)&Beacon_NotifyControlMessage);
+		MH_EnableHook((PVOID)Beacon_NotifyControlMessageAddr);
 	}
 
 	if (Engine_Version < 424 && GetNetModeAddr) // i dont even think we have to hook this

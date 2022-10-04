@@ -24,6 +24,9 @@ void setWorld(UObject* netdriver, UObject* world)
         if (FnVerDouble >= 20.00)
             VTableIndex = 0x7B;
 
+        if (FnVerDouble >= 21.00)
+            VTableIndex = 0x7C;
+
         auto SetWorldAAddr = netdriver->VFTable[VTableIndex];
         SetWorld = decltype(SetWorld)(SetWorldAAddr);
         // std::cout << "SetWorld Sig: " << GetBytes(__int64(SetWorldAAddr), 50) << '\n';
@@ -207,6 +210,10 @@ void Listen(int Port = 7777)
     }
     else
     {
+        static auto ReplicationDriverClass = FindObject(("Class /Script/FortniteGame.FortReplicationGraph"));
+
+        // *NetDriver->Member<UObject*>("ReplicationDriverClass") = ReplicationDriverClass;
+
         FString string;
         string.Set(L"GameNetDriver");
         auto GameNetDriverName = Helper::StringToName(string);
@@ -225,10 +232,12 @@ void Listen(int Port = 7777)
         setWorld(NetDriver, World);
     }
 
-    *NetDriver->Member<int>(("MaxClientRate")) = *NetDriver->Member<int>(("MaxInternetClientRate"));
+    // *NetDriver->Member<int>(("MaxClientRate")) = *NetDriver->Member<int>(("MaxInternetClientRate"));
     UObject** ReplicationDriver = nullptr;
 
     AllowConnections(NetDriver);
+
+    setWorld(NetDriver, World);
 
     serverStatus = EServerStatus::Up;
 
@@ -242,27 +251,6 @@ void Listen(int Port = 7777)
             {
                 if (!(*ReplicationDriver))
                 {
-                    static auto ReplicationDriverClass = FindObject(("Class /Script/FortniteGame.FortReplicationGraph"));
-
-                    auto Ret = Easy::SpawnObject(ReplicationDriverClass, NetDriver);
-
-                    /*
-                    if (SetReplicationDriver)
-                    {
-                        std::cout << "new rep graph: " << Ret << '\n';
-                        SetReplicationDriver(NetDriver, Ret);
-                    }
-                    else
-                        std::cout << ("No SetReplicationDriver\n");
-                    */
-
-                    // *ReplicationDriver = Ret;
-
-                    /* static auto addr = FindPattern("48 89 5C 24 ? 48 89 6C 24 ? 48 89 74 24 ? 57 48 83 EC 20 48 8B D9 48 8B F2 48 8B 89 ? ? ? ? 48 85 C9 0F 85 ? ? ? ? 48 89 B3 ? ? ? ? 48 85 F6 0F 85 ? ? ? ? 48 8B 5C 24 ? 48 8B 6C 24 ? 48 8B 74 24 ?");
-
-                    SetReplicationDriver = decltype(SetReplicationDriver)(addr);
-
-                    SetReplicationDriver(NetDriver, Ret);*/
                 }
                 else
                     std::cout << dye::green(("\n\n[WARNING] ReplicationDriver is valid, but we are trying to create it. (This is VERY good)\n\n\n"));
@@ -280,7 +268,7 @@ void Listen(int Port = 7777)
         std::cout << dye::red(("\n\n[ERROR] NO ReplicationDriver\n\n\n"));
 
     auto LevelCollections = World->Member<TArray<__int64>>(("LevelCollections"));
-    auto LevelCollectionsDa = World->Member<TArray<FLevelCollection>>(("LevelCollections"));
+    // auto LevelCollectionsDa = World->Member<TArray<FLevelCollection>>(("LevelCollections"));
     static auto LevelCollectionsSize = GetSizeOfStruct(FindObject("ScriptStruct /Script/Engine.LevelCollection"));
     static auto NetDriverOffset = FindOffsetStruct("ScriptStruct /Script/Engine.LevelCollection", "NetDriver");
 

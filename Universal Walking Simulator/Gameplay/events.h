@@ -9,9 +9,16 @@ static UObject* JerkyPlayerInteraction = nullptr;
 
 namespace EventHelper
 {
+	std::string UV_ItemName = "DrumGun";
+	void UnvaultItem(FName ItemName) {
+		UObject* BSS = FindObject("BP_SnowScripting_C /Game/Athena/Maps/Athena_POI_Foundations.Athena_POI_Foundations.PersistentLevel.BP_SnowScripting_2");
+		UObject* Func = BSS->Function("PillarsConcluded");
+		BSS->ProcessEvent(Func, &ItemName);
+	}
+
 	void TeleportPlayersToButterfly()
 	{
-		static auto scripting = FindObjectOld("BP_IslandScripting_C_", true);
+		static auto scripting = FindObject("BP_IslandScripting_C /Game/Athena/Maps/Athena_POI_Foundations.Athena_POI_Foundations.PersistentLevel.BP_IslandScripting3");
 
 		if (!scripting)
 		{
@@ -20,11 +27,18 @@ namespace EventHelper
 		}
 
 		UObject* ButterflyBP = *scripting->Member<UObject*>("ButterflyBP");
+		
+		auto PlayersArrayPawns = ButterflyBP->Member<TArray<UObject*>>("PlayersArray");
+
+		std::cout << "PlayersArrayPawns: " << PlayersArrayPawns->Num() << '\n';
+
+		ButterflyBP->ProcessEvent("TeleportPawns");
+
 		auto Locations = ButterflyBP->Member<TArray<FTransform>>("PlayerLocations");
 
 		std::cout << "Num PlayerLocations: " << Locations->Num() << '\n';
 
-		auto World = Helper::GetWorld();
+		/* auto World = Helper::GetWorld();
 
 		if (World)
 		{
@@ -52,8 +66,7 @@ namespace EventHelper
 					}
 				}
 			}
-		}
-
+		} */
 	}
 	
 	void ApplyGEsTravis()
@@ -354,15 +367,15 @@ namespace Events { // made by GD
 				CD->ProcessEvent(Func);
 			}
 			else if (Version == 8.51f) {
+				//Unvaulting
 				UObject* BSS = FindObject("BP_SnowScripting_C /Game/Athena/Maps/Athena_POI_Foundations.Athena_POI_Foundations.PersistentLevel.BP_SnowScripting_2");
-				UObject* Func1 = BSS->Function("StartCountdown");
-				UObject* Func2 = BSS->Function("FinalSequence");
-				BSS->ProcessEvent(Func1);
-				BSS->ProcessEvent(Func1); // pro coder
-				// BSS->ProcessEvent(Func2);
+				UObject* Func = BSS->Function("FinalSequence");
+				BSS->ProcessEvent(Func);
+				//(TODO) Teleport back after unvaulting part is done.
 
-				BSS->Member<FTimespan>("TimeUntilCountdownEnd")->Ticks = 1000000000; // 1:38
+				// BSS->Member<FTimespan>("TimeUntilCountdownEnd")->Ticks = 1000000000; // 1:38
 			}
+
 			else if (Version == 7.30f) {
 				//Marshmello
 				UObject* FS = FindObjectOld(".Athena_POI_CommunityPark_003_M.PersistentLevel.FestivusSequence_01_2.AnimationPlayer2");

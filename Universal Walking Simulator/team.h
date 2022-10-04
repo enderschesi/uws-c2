@@ -66,7 +66,10 @@ namespace Teams
 		auto AllTeams = (TArray<AFortTeamInfo*>*)(__int64(GameState) + TeamsOffset);
 
 		if (!AllTeams)
+		{
+			std::cout << "No AllTeams!\n";
 			return;
+		}
 
 		if (AllTeams->Num() <= 1)
 		{
@@ -147,7 +150,11 @@ namespace Teams
 		PlayerState->ProcessEvent(OnRep_SquadId);
 
 		static auto OnRep_TeamIndex = PlayerState->Function("OnRep_TeamIndex");
-		PlayerState->ProcessEvent(OnRep_TeamIndex, &OldTeamIdx);
+
+		if (OnRep_TeamIndex)
+			PlayerState->ProcessEvent(OnRep_TeamIndex, &OldTeamIdx);
+
+		// PlayerState->FriendsInSquad
 
 		// (*PlayerTeam)->CachedMember<TArray<AController*>>("TeamMembers")->Add(Controller);
 

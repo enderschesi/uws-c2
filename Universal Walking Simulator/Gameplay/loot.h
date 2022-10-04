@@ -259,67 +259,202 @@ namespace LootingV2
 
 		return DefinitionInRow();
 	}
+	
+	int SpawnFloorLoot(UObject* Class)
+	{
+		if (!Class)
+			return 0;
+
+		auto ClassActors = Helper::GetAllActorsOfClass(Class);
+
+		for (int i = 0; i < ClassActors.Num(); i++)
+		{
+			auto ClassActor = ClassActors.At(i);
+
+			if (ClassActor && ClassActor->GetFullName().contains("Tiered_Athena_FloorLoot_"))
+			{
+				constexpr bool bTossPickup = true;
+				bool ShouldSpawn = RandomBoolWithWeight(0.5f);
+
+				if (ShouldSpawn)
+				{
+					auto CorrectLocation = Helper::GetActorLocation(ClassActor);
+					CorrectLocation.Z += 50;
+
+					if (RandomBoolWithWeight(0.85f))
+					{
+						auto Consumable = GetRandomItem(ItemType::Consumable);
+
+						Helper::SummonPickup(nullptr, Consumable.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
+							EFortPickupSpawnSource::Unset, Consumable.DropCount, bTossPickup);
+					}
+					else
+					{
+						auto Weapon = GetRandomItem(ItemType::Weapon);
+
+						auto WeaponPickup = Helper::SummonPickup(nullptr, Weapon.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot, EFortPickupSpawnSource::Unset, 1, bTossPickup);
+
+						static auto GetAmmoWorldItemDefinition_BP = Weapon.Definition->Function(("GetAmmoWorldItemDefinition_BP"));
+
+						if (GetAmmoWorldItemDefinition_BP && WeaponPickup)
+						{
+							struct { UObject* AmmoDefinition; }GetAmmoWorldItemDefinition_BP_Params{};
+							Weapon.Definition->ProcessEvent(GetAmmoWorldItemDefinition_BP, &GetAmmoWorldItemDefinition_BP_Params);
+							auto AmmoDef = GetAmmoWorldItemDefinition_BP_Params.AmmoDefinition;
+							static auto DropCountOffset = GetOffset(AmmoDef, "DropCount");
+
+							auto DropCount = *(int*)(__int64(AmmoDef) + DropCountOffset);
+
+							Helper::SummonPickup(nullptr, AmmoDef, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
+								EFortPickupSpawnSource::Unset, DropCount, bTossPickup, false);
+						}
+					}
+
+					// Sleep(17);
+				}
+			}
+		}
+
+		int Num = ClassActors.Num();
+
+		ClassActors.Free();
+
+		return Num;
+	}
+
+
+	static DWORD WINAPI SpawnVehicles(LPVOID)
+	{
+		if (!StaticLoadObjectO)
+		{
+			std::cout << "No StaticLoadObject!\n";
+			return 1;
+		}
+
+		// BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_QuadSpawner.Athena_QuadSpawner_C
+		// BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_OctopusSpawner.Athena_OctopusSpawner_C
+		// BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_BiplaneSpawner.Athena_BiplaneSpawner_C
+		// BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_JackalSpawner.Athena_JackalSpawner_C
+		// BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_CartSpawner.Athena_CartSpawner_C
+		// World /Game/Athena/Maps/Athena_DroneSpawners.Athena_DroneSpawners
+
+		static auto FortVehicleSpawnerClass = FindObject("BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Athena_QuadSpawner.Athena_QuadSpawner_C"); // FindObject("Class /Script/FortniteGame.FortAthenaVehicleSpawner");
+		static auto BoatSpawnerClass = FindObject("BlueprintGeneratedClass /Game/Athena/DrivableVehicles/Meatball/Athena_Meatball_L_Spawner.Athena_Meatball_L_Spawner_C");
+
+		auto spawnerClass = BoatSpawnerClass;
+
+		auto Spawners = Helper::GetAllActorsOfClass(spawnerClass);
+
+		std::cout << "Spawning: " << Spawners.Num() << " vehicles\n";
+
+		for (int i = 0; i < Spawners.Num(); i++)
+		{
+			auto Spawner = Spawners[i];
+
+			if (Spawner)
+			{
+				// auto VehicleClassSoft = Spawner->Member<TSoftClassPtr>("VehicleClass");
+
+				{
+					auto SpawnerLoc = Helper::GetActorLocation(Spawner);
+					// std::cout << std::format("Spawning {} at {} {} {}", VehicleName, SpawnerLoc.X, SpawnerLoc.Y, SpawnerLoc.Z);
+					UObject* VehicleClass = LoadObject(Helper::GetBGAClass(), nullptr, "/Game/Athena/DrivableVehicles/Meatball/Meatball_Large/MeatballVehicle_L.MeatballVehicle_L_C");
+
+					if (VehicleClass)
+					{
+						Easy::SpawnActor(VehicleClass, SpawnerLoc, Helper::GetActorRotation(Spawner));
+					}
+					else
+						std::cout << "No vehicle class!\n";
+				}
+			}
+		}
+
+		Spawners.Free();
+
+		std::cout << "Spawned vehicles!\n";
+
+		return 0;
+	}
 
 	DWORD WINAPI SummonFloorLoot(LPVOID)
 	{
-		static auto BuildingContainerClass = FindObject("Class /Script/FortniteGame.BuildingContainer");
+		constexpr bool dehh = true;
 
-		if (BuildingContainerClass)
+		int amountSpawned = 0;
+
+		if (!dehh)
 		{
-			// std::cout << "aa!\n";
-			auto BuildingContainers = Helper::GetAllActorsOfClass(BuildingContainerClass);
-			// std::cout << "bb!\n";
+			static auto BuildingContainerClass = FindObject("Class /Script/FortniteGame.BuildingContainer");
 
-			std::cout << "Spawning: " << BuildingContainers.Num() << '\n';
-
-			for (int i = 0; i < BuildingContainers.Num(); i++)
+			if (BuildingContainerClass)
 			{
-				auto BuildingContainer = BuildingContainers.At(i);
+				// std::cout << "aa!\n";
+				auto BuildingContainers = Helper::GetAllActorsOfClass(BuildingContainerClass);
+				// std::cout << "bb!\n";
 
-				if (BuildingContainer && BuildingContainer->GetFullName().contains("Tiered_Athena_FloorLoot_"))
+				// std::cout << "Spawning: " << BuildingContainers.Num() << '\n';
+
+				for (int i = 0; i < BuildingContainers.Num(); i++)
 				{
-					constexpr bool bTossPickup = true;
-					bool ShouldSpawn = true; // RandomBoolWithWeight(0.7f);
+					auto BuildingContainer = BuildingContainers.At(i);
 
-					if (ShouldSpawn)
+					if (BuildingContainer && BuildingContainer->GetFullName().contains("Tiered_Athena_FloorLoot_"))
 					{
-						auto CorrectLocation = Helper::GetActorLocation(BuildingContainer);
-						CorrectLocation.Z += 50;
+						constexpr bool bTossPickup = true;
+						bool ShouldSpawn = RandomBoolWithWeight(0.5f);
 
-						if (RandomBoolWithWeight(0.35f))
+						if (ShouldSpawn)
 						{
-							auto Consumable = GetRandomItem(ItemType::Consumable);
-							Helper::SummonPickup(nullptr, Consumable.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
-								EFortPickupSpawnSource::Unset, Consumable.DropCount, bTossPickup);
-						}
-						else
-						{
-							auto Weapon = GetRandomItem(ItemType::Weapon);
+							auto CorrectLocation = Helper::GetActorLocation(BuildingContainer);
+							CorrectLocation.Z += 50;
 
-							auto WeaponPickup = Helper::SummonPickup(nullptr, Weapon.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot, EFortPickupSpawnSource::Unset, 1, bTossPickup);
-
-							static auto GetAmmoWorldItemDefinition_BP = Weapon.Definition->Function(("GetAmmoWorldItemDefinition_BP"));
-
-							if (GetAmmoWorldItemDefinition_BP && WeaponPickup)
+							if (RandomBoolWithWeight(0.85f))
 							{
-								struct { UObject* AmmoDefinition; }GetAmmoWorldItemDefinition_BP_Params{};
-								Weapon.Definition->ProcessEvent(GetAmmoWorldItemDefinition_BP, &GetAmmoWorldItemDefinition_BP_Params);
-								auto AmmoDef = GetAmmoWorldItemDefinition_BP_Params.AmmoDefinition;
+								auto Consumable = GetRandomItem(ItemType::Consumable);
 
-								Helper::SummonPickup(nullptr, AmmoDef, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
-									EFortPickupSpawnSource::Unset, *AmmoDef->Member<int>("DropCount"), bTossPickup);
+								Helper::SummonPickup(nullptr, Consumable.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
+									EFortPickupSpawnSource::Unset, Consumable.DropCount, bTossPickup);
 							}
-						}
+							else
+							{
+								auto Weapon = GetRandomItem(ItemType::Weapon);
 
-						Sleep(17);
+								auto WeaponPickup = Helper::SummonPickup(nullptr, Weapon.Definition, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot, EFortPickupSpawnSource::Unset, 1, bTossPickup);
+
+								static auto GetAmmoWorldItemDefinition_BP = Weapon.Definition->Function(("GetAmmoWorldItemDefinition_BP"));
+
+								if (GetAmmoWorldItemDefinition_BP && WeaponPickup)
+								{
+									struct { UObject* AmmoDefinition; }GetAmmoWorldItemDefinition_BP_Params{};
+									Weapon.Definition->ProcessEvent(GetAmmoWorldItemDefinition_BP, &GetAmmoWorldItemDefinition_BP_Params);
+									auto AmmoDef = GetAmmoWorldItemDefinition_BP_Params.AmmoDefinition;
+									static auto DropCountOffset = GetOffset(AmmoDef, "DropCount");
+
+									auto DropCount = *(int*)(__int64(AmmoDef) + DropCountOffset);
+
+									Helper::SummonPickup(nullptr, AmmoDef, CorrectLocation, EFortPickupSourceTypeFlag::FloorLoot,
+										EFortPickupSpawnSource::Unset, DropCount, bTossPickup, false);
+								}
+							}
+
+							std::cout << "I: " << i << '\n';
+
+							amountSpawned++;
+						}
 					}
 				}
+
+				BuildingContainers.Free();
 			}
-
-			std::cout << "Finished!\n";
-
-			BuildingContainers.Free();
 		}
+		else
+		{
+			amountSpawned += SpawnFloorLoot(FindObject("BlueprintGeneratedClass /Game/Athena/Environments/Blueprints/Tiered_Athena_FloorLoot_Warmup.Tiered_Athena_FloorLoot_Warmup_C"));
+			amountSpawned += SpawnFloorLoot(FindObject("BlueprintGeneratedClass /Game/Athena/Environments/Blueprints/Tiered_Athena_FloorLoot_01.Tiered_Athena_FloorLoot_01_C"));
+		}
+
+		std::cout << "Finished spawning " << amountSpawned << " floorloot!\n";
 
 		return 0;
 	}
@@ -339,7 +474,7 @@ namespace LootingV2
 		{
 			auto BuildingContainerName = BuildingContainer->GetName();
 
-			if (BuildingContainerName.contains(("Tiered_Chest")) || BuildingContainerName.contains("LCD_Chest")) //  LCD_ToolBox
+			if (BuildingContainerName.contains(("Tiered_Chest")) || BuildingContainerName.contains("LCD_Chest")) //  LCD_ToolBox // die
 			{
 				auto DefInRow = GetRandomItem(ItemType::Weapon);
 				{
@@ -360,14 +495,16 @@ namespace LootingV2
 
 							if (AmmoDef)
 							{
-								auto DropCount = *AmmoDef->Member<int>(("DropCount"));
-								Helper::SummonPickup(nullptr, AmmoDef, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, DropCount);
+								static auto DropCountOffset = GetOffset(AmmoDef, "DropCount");
+								auto DropCount = *(int*)(__int64(AmmoDef) + DropCountOffset);
+								Helper::SummonPickup(nullptr, AmmoDef, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, DropCount, true, false);
 							}
 
 							auto ConsumableInRow = GetRandomItem(ItemType::Consumable);
+
 							if (ConsumableInRow.Definition)
 							{
-								Helper::SummonPickup(nullptr, ConsumableInRow.Definition, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, ConsumableInRow.DropCount); // *Consumable->Member<int>(("DropCount")));
+								Helper::SummonPickup(nullptr, ConsumableInRow.Definition, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, ConsumableInRow.DropCount, true, false); // *Consumable->Member<int>(("DropCount")));
 							}
 
 							static auto WoodItemData = FindObject(("FortResourceItemDefinition /Game/Items/ResourcePickups/WoodItemData.WoodItemData"));
@@ -379,11 +516,11 @@ namespace LootingV2
 							int amountOfMaterialToDrop = GetRandomItem(ItemType::Resource, LootItems).DropCount;
 
 							if (random == 1)
-								Helper::SummonPickup(nullptr, WoodItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop);
+								Helper::SummonPickup(nullptr, WoodItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop, true, false);
 							else if (random == 2)
-								Helper::SummonPickup(nullptr, StoneItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop);
+								Helper::SummonPickup(nullptr, StoneItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop, true, false);
 							else
-								Helper::SummonPickup(nullptr, MetalItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop);
+								Helper::SummonPickup(nullptr, MetalItemData, Location, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::Chest, amountOfMaterialToDrop, true, false);
 						}
 					}
 				}
@@ -432,7 +569,7 @@ namespace LootingV2
 
 				for (int i = 0; i < 5; i++)
 				{
-					Helper::SummonPickup(nullptr, GetRandomItem(ItemType::Weapon, SupplyDropItems).Definition, CorrectLocation, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::SupplyDrop, 1);
+					Helper::SummonPickup(nullptr, GetRandomItem(ItemType::Weapon).Definition, CorrectLocation, EFortPickupSourceTypeFlag::Container, EFortPickupSpawnSource::SupplyDrop, 1);
 				}
 			}
 

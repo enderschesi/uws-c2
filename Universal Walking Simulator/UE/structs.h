@@ -374,8 +374,6 @@ struct light
 
 struct UObject;
 
-static UObject* (*GetDefaultObject)(UObject* theClass);
-
 struct UObject // https://github.com/EpicGames/UnrealEngine/blob/c3caf7b6bf12ae4c8e09b606f10a09776b4d1f38/Engine/Source/Runtime/CoreUObject/Public/UObject/UObjectBase.h#L20
 {
 	void** VFTable;
@@ -2211,16 +2209,6 @@ public:
 	int32_t ObjectSerialNumber;
 };
 
-template<class T, class TWeakObjectPtrBase = FWeakObjectPtr>
-struct TWeakObjectPtr : public FWeakObjectPtr
-{
-public:
-
-	inline T* Get() {
-		return GetByIndex<T>(ObjectIndex);
-	}
-};
-
 template<typename TObjectID>
 class TPersistentObjectPtr
 {
@@ -2254,6 +2242,31 @@ auto GetSerialNumber(UObject* Object)
 {
 	return (ObjObjects ? ObjObjects->GetItemById(Object->InternalIndex) : OldObjects->GetItemById(Object->InternalIndex))->SerialNumber;
 }
+
+template<class T = UObject, class TWeakObjectPtrBase = FWeakObjectPtr>
+struct TWeakObjectPtr : public FWeakObjectPtr
+{
+public:
+	inline T* Get() {
+		return GetByIndex<T>(ObjectIndex);
+	}
+
+	TWeakObjectPtr(int32_t ObjectIndex)
+	{
+		this->ObjectIndex = ObjectIndex;
+		this->ObjectSerialNumber = GetSerialNumber(GetByIndex<UObject>(ObjectIndex));
+	}
+
+	TWeakObjectPtr(UObject* Obj)
+	{
+		this->ObjectIndex = Obj->InternalIndex;
+		this->ObjectSerialNumber = GetSerialNumber(GetByIndex<UObject>(Obj->InternalIndex));
+	}
+
+	TWeakObjectPtr()
+	{
+	}
+};
 
 namespace EAbilityGenericReplicatedEvent
 {
@@ -2607,7 +2620,7 @@ struct FKeyHandle
 	uint32_t Index;
 };
 
-struct FKeyHandleMap
+/* struct FKeyHandleMap
 {
 	TMap<FKeyHandle, int32_t> KeyHandlesToIndices;
 	TArray<FKeyHandle> KeyHandles;
@@ -2626,8 +2639,7 @@ struct FRealCurve
 	TEnumAsByte<ERichCurveExtrapolation> PreInfinityExtrap;
 
 	TEnumAsByte<ERichCurveExtrapolation> PostInfinityExtrap;
-};
-
+}; */
 
 void* UFunction::GetFunc()
 {

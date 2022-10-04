@@ -8,6 +8,25 @@
 
 // Includes building and editing..
 
+void SetBuildingActorTeam(UObject* BuildingActor, int NewTeamIndex)
+{
+	static auto TeamOffset = GetOffset(BuildingActor, "Team");
+
+	if (TeamOffset != -1)
+	{
+		auto Team = (TEnumAsByte<EFortTeam>*)(__int64(BuildingActor) + TeamOffset);
+		*Team = NewTeamIndex; // *PlayerState->Member<TEnumAsByte<EFortTeam>>("Team");
+	}
+
+	static auto Building_TeamIndexOffset = GetOffset(BuildingActor, "TeamIndex");
+
+	if (Building_TeamIndexOffset != -1)
+	{
+		auto TeamIndex = (uint8_t*)(__int64(BuildingActor) + Building_TeamIndexOffset);
+		*TeamIndex = NewTeamIndex;
+	}
+}
+
 inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Function, void* Parameters)
 {
 	if (Controller && Parameters)
@@ -20,8 +39,6 @@ inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Functi
 		UObject* MatInstance = nullptr;
 
 		auto Pawn = Helper::GetPawnFromController(Controller);
-
-		static auto aibuildfn = FindObject("Function /Script/FortniteGame.FortAIController.CreateBuildingActor");
 
 		UObject* BuildingClass = nullptr;
 		FVector BuildingLocation;
@@ -54,7 +71,6 @@ inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Functi
 				BuildingRotation = Params->CreateBuildingData.BuildRot;
 				bMirrored = Params->CreateBuildingData.bMirrored;
 
-				if (!bUseAIBuild)
 				{
 					static auto RemoteBuildingMaterialOffset = GetOffset(*RemoteClientInfo, "RemoteBuildingMaterial");
 					auto RemoteBuildingMaterial = (TEnumAsByte<EFortResourceType>*)(__int64(*RemoteClientInfo) + RemoteBuildingMaterialOffset);
@@ -105,16 +121,10 @@ inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Functi
 				return false;
 
 			{
-				/* __int64 (*CanBuild)(UObject*, UObject*, FVector, FRotator, char, void*, char*) = nullptr;
-
-				CanBuild = decltype(CanBuild)(FindPattern("48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 41 56 48 83 EC ? 49 8B E9 4D 8B F0"));
-
-				__int64 v32[2];
+				__int64 v32[2]{};
 				char dababy;
 
-				if (!CanBuild || (CanBuild && !CanBuild(Helper::GetWorld(), BuildingClass, BuildingLocation, BuildingRotation, bMirrored, v32, &dababy))) */
-
-				if (!bUseAIBuild)
+				if (!CanBuild || FnVerDouble >= 13 || (CanBuild && !CanBuild(Helper::GetWorld(), BuildingClass, BuildingLocation, BuildingRotation, bMirrored, v32, &dababy)))
 				{
 					UObject* BuildingActor = Easy::SpawnActor(BuildingClass, BuildingLocation, BuildingRotation, Pawn);
 
@@ -148,23 +158,9 @@ inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Functi
 						{
 							auto PlayerState = Helper::GetPlayerStateFromController(Controller);
 
-							static auto TeamOffset = GetOffset(BuildingActor, "Team");
-
 							auto PlayersTeamIndex = *Teams::GetTeamIndex(PlayerState);;
 
-							if (TeamOffset != -1)
-							{
-								auto Team = (TEnumAsByte<EFortTeam>*)(__int64(BuildingActor) + TeamOffset);
-								*Team = PlayersTeamIndex; // *PlayerState->Member<TEnumAsByte<EFortTeam>>("Team");
-							}
-
-							static auto Building_TeamIndexOffset = GetOffset(BuildingActor, "TeamIndex");
-							
-							if (Building_TeamIndexOffset != -1)
-							{
-								auto TeamIndex = (uint8_t*)(__int64(BuildingActor) + Building_TeamIndexOffset);
-								*TeamIndex = PlayersTeamIndex;
-							}
+							SetBuildingActorTeam(BuildingActor, PlayersTeamIndex);
 
 							// Helper::SetMirrored(BuildingActor, bMirrored);
 							Helper::InitializeBuildingActor(Controller, BuildingActor, true);
@@ -189,21 +185,6 @@ inline bool ServerCreateBuildingActorHook(UObject* Controller, UFunction* Functi
 						}
 					}
 				}
-				else
-				{
-					struct {
-						UObject* BuildingClass;
-						FVector BuildLoc;
-						FRotator BuildRot;
-						bool bMirrored;
-						bool iguesssuccess;
-					} parms{BuildingClass, BuildingLocation, BuildingRotation, bMirrored};
-
-					Controller->ProcessEvent(aibuildfn, &parms);
-				}
-
-				// if (v32[0])
-					// FMemory::Free(v32);
 			}
 		}
 	}
@@ -410,11 +391,90 @@ inline bool ServerEndEditingBuildingActorHook(UObject* Controller, UFunction* Fu
 	return false;
 }
 
+inline bool ServerRepairBuildingActorHook(UObject* Controller, UFunction* Function, void* Parameters)
+{
+	auto BuildingActorToRepair = *(UObject**)Parameters;
+
+	if (Controller && BuildingActorToRepair)
+	{
+		static auto RepairBuilding = Controller->Function("RepairBuilding");
+
+		// BuildingRepairCostMultiplierHandles
+
+		int ResourcesSpent = 0;
+
+		struct { UObject* Controller; int ResourcesSpent; } parms{Controller, ResourcesSpent };
+
+		BuildingActorToRepair->ProcessEvent(RepairBuilding, &parms);
+	}
+
+	return false;
+}
+
+inline bool ServerSpawnDecoHook(UObject* DecoTool, UFunction*, void* Parameters)
+{
+	if (DecoTool)
+	{
+		// DecoTool->TryToPlace // TODO: Try
+
+		struct parmas {
+			FVector Location; 
+			FRotator Rotation;
+			UObject* AttachedActor;
+			// TEnumAsByte<EBuildingAttachmentType> InBuildingAttachmentType
+		};
+
+		auto Params = (parmas*)Parameters;
+
+		auto Pawn = Helper::GetOwner(DecoTool);
+		auto Controller = Helper::GetControllerFromPawn(Pawn);
+
+		static auto ItemDefinitionOffset = GetOffset(DecoTool, "ItemDefinition");
+		auto TrapItemDefinition = *(UObject**)(__int64(DecoTool) + ItemDefinitionOffset);
+
+		// Inventory::DecreaseItemCount(Controller, Inventory::FindItemInInventory(Controller, TrapItemDefinition), 1);
+
+		static auto GetBlueprintClass = TrapItemDefinition->Function("GetBlueprintClass");
+		UObject* BlueprintClass = nullptr;
+		TrapItemDefinition->ProcessEvent(GetBlueprintClass, &BlueprintClass);
+
+		auto NewTrap = Easy::SpawnActor(BlueprintClass, Params->Location, Params->Rotation);
+
+		Helper::InitializeBuildingActor(Controller, NewTrap);
+
+		static auto AttachedToOffset = GetOffset(NewTrap, "AttachedTo");
+		auto AttachedTo = (UObject**)(__int64(NewTrap) + AttachedToOffset);
+
+		*AttachedTo = Params->AttachedActor;
+
+		// BuildingActor->BuildingAttachmentType = Params->InBuildingAttachmentType;
+
+		SetBuildingActorTeam(NewTrap, *Teams::GetTeamIndex(Helper::GetPlayerStateFromController(Controller)));
+
+		static auto TrapDataOffset = GetOffset(NewTrap, "TrapData");
+		auto TrapData = (UObject**)(__int64(NewTrap) + TrapDataOffset);
+		*TrapData = TrapItemDefinition; // probably useless
+	}
+
+	return false;
+}
+
+inline bool ServerCreateBuildingAndSpawnDecoHook(UObject* DecoTool, UFunction*, void* Parameters) // ofc they change this (Params)
+{
+	if (DecoTool)
+	{
+
+	}
+}
+
 void InitializeBuildHooks()
 {
 	// if (Engine_Version < 426)
 	{
+		// AddHook("Function /Script/FortniteGame.FortDecoTool.ServerCreateBuildingAndSpawnDeco", ServerCreateBuildingAndSpawnDecoHook);
+		AddHook("Function /Script/FortniteGame.FortDecoTool.ServerSpawnDeco", ServerSpawnDecoHook);
 		AddHook(("Function /Script/FortniteGame.FortPlayerController.ServerCreateBuildingActor"), ServerCreateBuildingActorHook);
+		// AddHook("Function /Script/FortniteGame.FortPlayerController.ServerRepairBuildingActor", ServerRepairBuildingActorHook);
 
 		// if (Engine_Version < 424)
 		if (std::floor(FnVerDouble) != 15)
